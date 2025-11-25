@@ -3,7 +3,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
-import hashlib # Tambahan untuk keamanan login
+import hashlib
 
 # --- 1. KONFIGURASI SISTEM ---
 st.set_page_config(
@@ -13,13 +13,20 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS (Tampilan Mewah) ---
+# --- CUSTOM CSS (Tampilan Mewah Ungu-Pink) ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    /* Background Gradient Premium */
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
+    
+    /* Typography */
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
+    
+    /* Glassmorphism Card Effect */
     div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px; backdrop-filter: blur(5px); }
+    
+    /* Button Style Gold */
     div.stButton > button { width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important; border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; }
     
     /* Logo Center di Sidebar */
@@ -30,32 +37,31 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. SISTEM LOGIN CERDAS (ANTI-LOGOUT)
+# 2. SISTEM LOGIN "STICKY" (ANTI-LOGOUT)
 # ==========================================
 
 def get_session_token(username, password):
-    """Membuat token unik dari username & password untuk sesi URL."""
-    raw_str = f"{username}::{password}::MafaFX_Secret_Salt"
+    """Membuat token rahasia untuk sesi URL."""
+    raw_str = f"{username}::{password}::MafaFX_Secure_Salt"
     return hashlib.sha256(raw_str.encode()).hexdigest()
 
 def check_password():
-    # --- A. Cek Token URL (Untuk Auto-Login saat Refresh) ---
+    # A. Cek Token URL (Auto-Login saat Refresh)
     params = st.query_params
     if "auth_token" in params:
         token = params["auth_token"]
-        # Cek apakah token valid milik salah satu user
         for user, pwd in st.secrets["passwords"].items():
             if get_session_token(user, pwd) == token:
                 st.session_state["password_correct"] = True
                 st.session_state["username"] = user
                 break
 
-    # --- B. Cek Status Session State ---
+    # B. Cek Session State
     if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
     
     if st.session_state["password_correct"]: return True
 
-    # --- C. Tampilkan Form Login (Jika belum login) ---
+    # C. Form Login
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         try: st.image("logo.png", width=200)
@@ -69,12 +75,10 @@ def check_password():
                 user = st.session_state.get("username_input")
                 pwd = st.session_state.get("password_input")
                 
-                # Verifikasi User
                 if user in st.secrets["passwords"] and st.secrets["passwords"][user] == pwd:
                     st.session_state["password_correct"] = True
                     st.session_state["username"] = user
-                    
-                    # SET TOKEN KE URL AGAR TIDAK LOGOUT SAAT REFRESH
+                    # SIMPAN TOKEN KE URL
                     token = get_session_token(user, pwd)
                     st.query_params["auth_token"] = token
                     st.rerun()
@@ -85,11 +89,11 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. ENGINE TWELVE DATA (REAL-TIME)
+# 3. ENGINE TWELVE DATA (REAL-TIME CORE)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=30"
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=35"
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
@@ -109,18 +113,20 @@ def process_data(values, inverse=False):
         prev = df['close'].iloc[-2]
         
         if inverse: # DXY Proxy (EUR/USD dibalik)
+            # Logika: Jika EURUSD turun, DXY naik.
             change_pct = -1 * ((current - prev) / prev) * 100
-            chart_data = df['close'].pct_change() * -1 # Untuk Bar Chart
+            # Data untuk Bar Chart Tekanan
+            chart_data = df['close'].pct_change() * -1 
             display_price = (1 / current) * 100 
         else:
             change_pct = ((current - prev) / prev) * 100
-            chart_data = df['close'] # Untuk Line Chart
+            chart_data = df['close'] # Harga Emas Asli
             display_price = current
             
         return display_price, change_pct, chart_data
     except: return None, None, None
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=60) # Cache 1 Menit
 def fetch_market_data():
     try: api_key = st.secrets["twelvedata"]["api_key"]
     except: st.error("API Key Missing"); return None
@@ -139,7 +145,7 @@ def fetch_market_data():
     }
 
 # ==========================================
-# 4. DASHBOARD (Lampu Lalu Lintas)
+# 4. DASHBOARD "TRAFFIC LIGHT" (Presisi)
 # ==========================================
 
 def main_dashboard():
@@ -148,38 +154,39 @@ def main_dashboard():
         try: st.image("logo.png", width=150)
         except: st.write("### 👑 MafaFX")
         st.markdown("---")
-        st.caption("Status: Premium Active")
         st.write(f"User: **{st.session_state.get('username')}**")
+        st.caption("Status: Premium Active")
         
-        # TOMBOL LOGOUT (Membersihkan Token)
         if st.button("Logout"): 
             st.session_state["password_correct"] = False
-            st.query_params.clear() # HAPUS TOKEN DARI URL
+            st.query_params.clear() # Hapus token saat logout
             st.rerun()
 
-    # Layout Header
+    # --- HEADER ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
         st.title("MafaFX Premium")
-        st.caption("⚡ Real-Time Price Action & Pressure Meter")
+        st.caption("⚡ Real-Time Price Action vs Market Pressure")
     with col_refresh:
         st.write("")
-        if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
+        if st.button("🔄 Refresh Data"): st.cache_data.clear(); st.rerun()
 
-    with st.spinner('Menganalisis Tekanan Pasar...'):
+    # --- DATA FETCHING ---
+    with st.spinner('Menghitung Tekanan Pasar...'):
         data = fetch_market_data()
         
         if data is None:
-            st.warning("Menunggu data Real-Time... (Coba Refresh)")
+            st.warning("Menunggu data Real-Time... (Silakan Refresh)")
             return
 
         gold = data['GOLD']
         dxy = data['DXY']
         
-        # --- LOGIKA VISUAL ---
+        # --- SINYAL VISUAL ---
         signal_color = "#FFFFFF"
         signal_text = "NEUTRAL ⚪"
         
+        # Logika Sederhana & Efektif
         if dxy['chg'] > 0.02: 
             signal_text = "TEKANAN JUAL (SELL) 🔴"
             signal_color = "#FF4B4B"
@@ -187,47 +194,52 @@ def main_dashboard():
             signal_text = "PELUANG BELI (BUY) 🟢"
             signal_color = "#00CC96"
 
+        # KOTAK SINYAL UTAMA
         st.markdown(f"""
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
-            <h2 style="margin:0; text-shadow: 0 0 10px rgba(0,0,0,0.5); color: {signal_color};">{signal_text}</h2>
-            <p style="margin:0; opacity:0.8;">XAU/USD: ${gold['price']:,.2f}</p>
+            <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
+            <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['price']:,.2f}</h3>
+            <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan: {gold['chg']:.2f}%</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # --- GRAFIK SPLIT VIEW ---
-        st.markdown("### 🚦 Analisis Grafik")
+        # --- GRAFIK SPLIT VIEW (Traffic Light) ---
+        st.markdown("### 🚦 Analisis Arus & Tekanan")
         
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
-                            vertical_spacing=0.08, row_heights=[0.6, 0.4],
-                            subplot_titles=("1. Harga Emas (Price)", "2. Tekanan Dolar (Pressure)"))
+                            vertical_spacing=0.05, row_heights=[0.65, 0.35],
+                            subplot_titles=("1. Harga Emas (Akibat)", "2. Tekanan Dolar (Sebab)"))
 
-        # Grafik Atas (Harga)
+        # Grafik 1: Harga Emas (Area)
         fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Harga Emas', 
                                  line=dict(color='#FFD700', width=3), fill='tozeroy'), row=1, col=1)
 
-        # Grafik Bawah (Tekanan)
+        # Grafik 2: Tekanan Dolar (Bar)
+        # Hapus NaN di awal agar grafik rapi
         dxy_vals = dxy['chart'].dropna()
+        # Warna: Merah jika Dolar Naik (Bahaya), Hijau jika Dolar Turun (Aman)
         bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in dxy_vals]
         
         fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='Tekanan Dolar', 
                              marker_color=bar_colors), row=2, col=1)
 
-        fig.update_layout(template="plotly_dark", height=500, 
+        # Styling
+        fig.update_layout(template="plotly_dark", height=550, 
                           paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                           margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
+        
+        # Grid Cleaner
         fig.update_yaxes(showgrid=False, zeroline=False)
         fig.update_xaxes(showgrid=False)
+        # Garis Nol Putus-putus
         fig.add_hline(y=0, line_dash="dot", row=2, col=1, line_color="white", opacity=0.5)
 
         st.plotly_chart(fig, use_container_width=True)
         
-        # Legend Sederhana
+        # --- LEGEND PEMULA ---
         c1, c2 = st.columns(2)
-        c1.info("🟥 **Batang MERAH (Ke Atas):** Dolar Menguat. Tekanan Jual Emas.")
-        c2.success("🟩 **Batang HIJAU (Ke Bawah):** Dolar Melemah. Peluang Beli Emas.")
+        c1.error("**🟥 JIKA BATANG MERAH:** Dolar Kuat (Menekan). Hindari Buy, Cari Sell.")
+        c2.success("**🟩 JIKA BATANG HIJAU:** Dolar Lemah (Lega). Aman untuk Buy.")
 
 if __name__ == "__main__":
     main_dashboard()
-
-
-
