@@ -136,46 +136,70 @@ def analyze_market_regime(curr, prev):
 def main_dashboard():
     username = st.session_state.get("username", "Klien")
     
-    # SIDEBAR & HEADER
-    # ... (tetap sama) ...
+    with st.sidebar:
+        try: st.image("logo.png", width=100)
+        except: pass
+        st.write(f"Logged in as: **{username}**")
+        if st.button('Logout'): st.session_state["password_correct"] = False; st.rerun()
+        st.write("---") 
 
+    col_head_logo, col_head_text = st.columns([1, 6])
+    with col_head_logo:
+         try: st.image("logo.png", width=120)
+         except: st.markdown("<h1>👑</h1>", unsafe_allow_html=True)
+    with col_head_text:
+        st.title("MafaFX Premium Dashboard")
+        st.caption(f"Realtime XAUUSD Sentinel | Welcome, {username}")
+    st.markdown("---")
+    
     with st.spinner('Analisis Market sedang berjalan...'):
-        curr, prev, norm_data = fetch_financial_data()
-        
-        if curr is None: return # Keluar jika gagal koneksi API
-
-        # Perhitungan %
-        gold_pct = ((curr['GOLD'] - prev['GOLD']) / prev['GOLD']) * 100 if prev['GOLD'] != 0 else 0
-        dxy_pct = ((curr['DXY'] - prev['DXY']) / prev['DXY']) * 100 if prev['DXY'] != 0 else 0
-
-        bias_text, css_class, final_score, reason_list = analyze_market_regime(curr, prev)
-
-        # 1. BIAS SUMMARY
-        # ... (Tampilan bias) ...
-        
-        # 2. METRIK ANGKA
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("🥇 GOLD (XAU)", f"${curr['GOLD']:,.2f}", f"{gold_pct:.2f}%")
-        c2.metric("💵 DXY (Proxy)", f"{curr['DXY']:.2f}", f"{dxy_pct:.2f}%", delta_color="inverse")
-        c3.metric("📈 YIELD", "N/A", "N/A", delta_color="off")
-        c4.metric("🛢️ OIL", "N/A", "N/A", delta_color="off")
-
-        # 3. CHART KORELASI
-        st.markdown("### 📉 Visualisasi Korelasi")
-        
-        if norm_data is not None and len(norm_data) > 2:
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=norm_data.index, y=norm_data['GOLD'], name='GOLD', fill='tozeroy', line=dict(color='#FFD700')))
-            fig.add_trace(go.Scatter(x=norm_data.index, y=norm_data['DXY'], name='DXY (Inverse)', line=dict(color='#FF4B4B', dash='dot'))) # DXY sekarang yang ditampilkan
+        try:
+            curr, prev, norm_data = fetch_financial_data()
             
-            # ... (Layout chart) ...
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-             st.warning("Data historis tidak mencukupi untuk visualisasi korelasi.")
-        
-        if st.button('🔄 Refresh Data'): st.cache_data.clear(); st.rerun()
+            if curr is None: 
+                st.warning("Gagal memuat data fundamental. Cek API Key atau Batas Harian.")
+                return 
 
-        except Exception as e: st.error(f"Error: {e}")
+            # Perhitungan %
+            gold_pct = ((curr['GOLD'] - prev['GOLD']) / prev['GOLD']) * 100 if prev['GOLD'] != 0 else 0
+            dxy_pct = ((curr['DXY'] - prev['DXY']) / prev['DXY']) * 100 if prev['DXY'] != 0 else 0
+
+            bias_text, css_class, final_score, reason_list = analyze_market_regime(curr, prev)
+
+            # 1. BIAS SUMMARY
+            st.markdown(f"""<div style="padding:20px; border-radius:15px; text-align:center; border:2px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.5);"><div class="{css_class}" style="background: transparent; border: none;"><h2 style="margin:0; color:white;">{bias_text}</h2><h4 style="margin:0; color:white;">Score: {final_score}/10</h4></div></div>""", unsafe_allow_html=True)
+            with st.expander("📊 Analisis Fundamental:"):
+                 if reason_list:
+                    for r in reason_list: st.write(f"- {r}")
+                 else: st.write("- Pasar konsolidasi.")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # 2. METRIK ANGKA
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("🥇 GOLD (XAU)", f"${curr['GOLD']:,.2f}", f"{gold_pct:.2f}%")
+            c2.metric("💵 DXY (Proxy)", f"{curr['DXY']:.2f}", f"{dxy_pct:.2f}%", delta_color="inverse")
+            c3.metric("📈 YIELD", "N/A", "N/A", delta_color="off")
+            c4.metric("🛢️ OIL", "N/A", "N/A", delta_color="off")
+
+            # 3. CHART KORELASI
+            st.markdown("### 📉 Visualisasi Korelasi")
+            
+            if norm_data is not None and len(norm_data) > 2:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=norm_data.index, y=norm_data['GOLD'], name='GOLD', fill='tozeroy', line=dict(color='#FFD700')))
+                fig.add_trace(go.Scatter(x=norm_data.index, y=norm_data['DXY'], name='DXY (Inverse)', line=dict(color='#FF4B4B', dash='dot')))
+                
+                fig.update_layout(template="plotly_dark", height=450, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                 st.warning("Data historis tidak mencukupi untuk visualisasi korelasi.")
+            
+            # Tombol Refresh harus di dalam try block
+            if st.button('🔄 Refresh Data'): st.cache_data.clear(); st.rerun()
+
+        except Exception as e: 
+            # Except harus sejajar dengan try
+            st.error(f"Error: {e}")
 
 if __name__ == "__main__":
     main_dashboard()
