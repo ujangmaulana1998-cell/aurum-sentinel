@@ -12,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (Branding MafaFX) ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
@@ -26,6 +26,7 @@ st.markdown("""
 # --- 2. SISTEM LOGIN ---
 def check_password():
     if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
+    
     if st.session_state["password_correct"]: return True
 
     col1, col2, col3 = st.columns([1, 1.5, 1])
@@ -38,6 +39,7 @@ def check_password():
             if st.form_submit_button("LOGIN"):
                 user = st.session_state.get("username")
                 pwd = st.session_state.get("password")
+                # Cek credentials
                 if user in st.secrets["passwords"] and st.secrets["passwords"][user] == pwd:
                     st.session_state["password_correct"] = True
                     st.rerun()
@@ -48,160 +50,158 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. ENGINE TWELVE DATA (REAL-TIME)
+# 3. ENGINE TWELVE DATA (REAL-TIME CORE)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
-    """Mengambil data dari Twelve Data API."""
-    # Endpoint Time Series
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50"
+    """Mengambil data Time Series dari Twelve Data."""
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=30"
     
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         data = response.json()
         
+        # Cek Error API
         if "status" in data and data["status"] == "error":
-            st.error(f"API Error ({symbol}): {data['message']}")
+            # Jangan stop aplikasi, return None saja agar bisa retry
             return None
             
-        return data["values"] # List of dictionaries
+        return data.get("values", [])
 
     except Exception as e:
-        st.error(f"Koneksi Gagal: {e}")
         return None
 
-def process_twelvedata(values, inverse=False):
+def process_data(values, inverse=False):
+    """Memproses JSON menjadi DataFrame dan menghitung perubahan."""
     if not values: return None, None, None
     
-    # Konversi ke DataFrame
-    df = pd.DataFrame(values)
-    df['datetime'] = pd.to_datetime(df['datetime'])
-    df = df.set_index('datetime').sort_index()
-    df['close'] = df['close'].astype(float)
-    
-    current = df['close'].iloc[-1]
-    prev = df['close'].iloc[-2]
-    
-    if inverse:
-        # Untuk DXY Proxy (EUR/USD dibalik)
-        # Rumus: 1/EURUSD * faktor (atau simplifikasi 100 + (100-harga) untuk visual)
-        # Kita gunakan pendekatan invers persentase sederhana untuk visualisasi
-        current_inv = 1 / current
-        prev_inv = 1 / prev
-        pct_change = ((current_inv - prev_inv) / prev_inv) * 100
+    try:
+        df = pd.DataFrame(values)
+        df['datetime'] = pd.to_datetime(df['datetime'])
+        df = df.set_index('datetime').sort_index()
+        df['close'] = df['close'].astype(float)
         
-        # Normalisasi chart (Inverted)
-        chart_data = (df['close'].pct_change().cumsum() * -1)
+        current = df['close'].iloc[-1]
+        prev = df['close'].iloc[-2]
         
-        # Tampilkan harga sebagai "Proxy Index" (Bukan harga EURUSD asli)
-        return round(current_inv * 100, 2), pct_change, chart_data
-    
-    else:
-        pct_change = ((current - prev) / prev) * 100
-        chart_data = df['close'].pct_change().cumsum()
-        return current, pct_change, chart_data
+        if inverse:
+            # DXY Proxy (EUR/USD dibalik logikanya)
+            # Jika EURUSD turun, DXY naik.
+            change_pct = -1 * ((current - prev) / prev) * 100
+            chart_data = (df['close'].pct_change().cumsum() * -1) # Chart dibalik
+        else:
+            change_pct = ((current - prev) / prev) * 100
+            chart_data = df['close'].pct_change().cumsum()
+            
+        return current, change_pct, chart_data
+    except:
+        return None, None, None
 
-@st.cache_data(ttl=60) # Cache 60 detik (Realtime tapi hemat kuota)
+@st.cache_data(ttl=60) # Cache 60 detik (Hemat Kuota API)
 def fetch_market_data():
-    api_key = st.secrets["twelvedata"]["api_key"]
-    
-    # 1. GOLD (XAU/USD) - Realtime Forex
+    # Ambil API Key dari Secrets [twelvedata]
+    try:
+        api_key = st.secrets["twelvedata"]["api_key"]
+    except:
+        st.error("API Key Twelve Data belum disetting di Secrets!")
+        return None
+
+    # 1. GOLD (Realtime)
     gold_raw = get_twelvedata("XAU/USD", "15min", api_key)
     
-    # 2. DXY Proxy (EUR/USD) - Realtime Forex
-    # Twelve Data DXY asli berbayar, kita pakai EUR/USD (komponen terbesar DXY) dan kita balik
+    # 2. DXY PROXY (EUR/USD Realtime)
+    # Twelve Data DXY asli berbayar, jadi kita pakai EUR/USD sebagai proxy terbalik.
     dxy_raw = get_twelvedata("EUR/USD", "15min", api_key)
     
     if not gold_raw or not dxy_raw: return None
     
-    # Proses Data
-    g_price, g_chg, g_chart = process_twelvedata(gold_raw)
-    d_price, d_chg, d_chart = process_twelvedata(dxy_raw, inverse=True)
+    g_price, g_chg, g_chart = process_data(gold_raw)
+    d_price, d_chg, d_chart = process_data(dxy_raw, inverse=True)
     
     return {
         'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart},
-        'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart}
+        'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart} # Harga EURUSD, tapi Change & Chart DXY
     }
 
 # ==========================================
-# 4. DASHBOARD UTAMA
+# 4. DASHBOARD TAMPILAN
 # ==========================================
 
 def main_dashboard():
-    # Header
-    col_logo, col_title = st.columns([1, 5])
-    with col_title:
-        st.title("MafaFX Premium")
-        st.caption("⚡ Powered by Twelve Data (Real-Time)")
-    
-    with st.spinner('Menghubungkan ke Server Real-Time...'):
-        data = fetch_market_data()
-        
-        if data is None:
-            st.warning("Gagal mengambil data. Cek API Key atau tunggu 1 menit.")
-            if st.button("Coba Lagi"): st.cache_data.clear(); st.rerun()
-            return
-
-        # Ambil Data
-        gold = data['GOLD']
-        dxy = data['DXY'] # Ini adalah DXY Proxy (Inverted EURUSD)
-        
-        # LOGIKA SINYAL (Simple)
-        # Jika DXY Turun -> Gold Bullish
-        # Jika DXY Naik -> Gold Bearish
-        
-        score = 0
-        signal = "NEUTRAL ⚪"
-        
-        if dxy['chg'] > 0.05: # USD Menguat
-            score -= 5
-            signal = "BEARISH BIAS 🔴"
-        elif dxy['chg'] < -0.05: # USD Melemah
-            score += 5
-            signal = "BULLISH BIAS 🟢"
-            
-        # TAMPILAN UTAMA
-        st.markdown("---")
-        
-        # Kotak Signal
-        st.markdown(f"""
-        <div style="background:rgba(255,255,255,0.1); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2);">
-            <h1 style="margin:0;">{signal}</h1>
-            <p style="margin:0; opacity:0.7;">Correlation Score: {score}/10</p>
-        </div>
-        <br>
-        """, unsafe_allow_html=True)
-        
-        # Metrik
-        c1, c2, c3 = st.columns(3)
-        c1.metric("🥇 XAU/USD (Real-Time)", f"${gold['price']:,.2f}", f"{gold['chg']:.2f}%")
-        c2.metric("💵 USD Strength (Proxy)", f"{dxy['price']:.2f}", f"{dxy['chg']:.2f}%", delta_color="inverse")
-        c3.metric("📊 Market State", "Active", "Volatile")
-        
-        # Chart Korelasi
-        st.markdown("### 📉 Live Correlation Chart")
-        
-        # Buat DataFrame gabungan untuk chart yang rapi
-        # Kita perlu menyamakan index (datetime)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', fill='tozeroy', line=dict(color='#FFD700')))
-        fig.add_trace(go.Scatter(y=dxy['chart'], mode='lines', name='USD Inv.', line=dict(color='red', dash='dot')))
-        
-        fig.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0))
-        st.plotly_chart(fig, use_container_width=True)
-        
-        # Tombol Refresh
-        if st.button("🔄 Refresh Real-Time Data"):
-            st.cache_data.clear()
-            st.rerun()
-
-    # Sidebar Logout
+    # Sidebar
     with st.sidebar:
         st.write(f"User: **{st.session_state.get('username')}**")
         if st.button("Logout"): 
             st.session_state["password_correct"] = False
             st.rerun()
 
+    # Header Area
+    col_head, col_status = st.columns([3, 1])
+    with col_head:
+        st.title("MafaFX Premium")
+        st.caption("⚡ Powered by Twelve Data | Real-Time Execution")
+    
+    # Data Loading
+    with st.spinner('Menghubungkan ke Exchange Real-Time...'):
+        data = fetch_market_data()
+        
+        if data is None:
+            st.warning("Menunggu data Real-Time... (Otomatis refresh dalam 1 menit)")
+            if st.button("Paksa Refresh"):
+                st.cache_data.clear()
+                st.rerun()
+            return
+
+        gold = data['GOLD']
+        dxy = data['DXY']
+        
+        # LOGIKA SINYAL FUNDAMENTAL
+        score = 0
+        signal_text = "NEUTRAL ⚪"
+        
+        # Logika: Jika Dolar (DXY) Menguat > 0.05%, Emas Tertekan.
+        if dxy['chg'] > 0.05: 
+            score -= 5
+            signal_text = "BEARISH PRESSURE 🔴"
+        elif dxy['chg'] < -0.05: 
+            score += 5
+            signal_text = "BULLISH MOMENTUM 🟢"
+            
+        # Tampilan KOTAK SINYAL
+        st.markdown(f"""
+        <div style="background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05)); 
+                    padding:20px; border-radius:20px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
+            <h1 style="margin:0; text-shadow: 0 0 10px rgba(0,0,0,0.5);">{signal_text}</h1>
+            <p style="margin:0; opacity:0.8; font-size: 1.2em;">Fundamental Score: {score}/10</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # METRIK HARGA
+        c1, c2, c3 = st.columns(3)
+        c1.metric("🥇 XAU/USD (Live)", f"${gold['price']:,.2f}", f"{gold['chg']:.2f}%")
+        c2.metric("💵 USD Strength (Est)", f"{dxy['price']:.4f}", f"{dxy['chg']:.2f}%", delta_color="inverse")
+        c3.metric("📊 Volatilitas", "Active", "Real-Time")
+        
+        # CHART KORELASI (The Edge)
+        st.markdown("### 📉 Live Market Correlation")
+        st.caption("Grafik ini membandingkan Emas vs Kekuatan Dolar. Jika garis Merah naik, garis Emas biasanya turun.")
+        
+        if gold['chart'] is not None and dxy['chart'] is not None:
+            fig = go.Figure()
+            # Plot Gold
+            fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', fill='tozeroy', line=dict(color='#FFD700', width=2)))
+            # Plot DXY (Inverted EURUSD)
+            fig.add_trace(go.Scatter(y=dxy['chart'], mode='lines', name='USD Strength', line=dict(color='#FF4B4B', dash='dot', width=2)))
+            
+            fig.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                              margin=dict(l=0, r=0, t=10, b=0), hovermode="x unified")
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # Footer Action
+        if st.button("🔄 Refresh Data (Live)"):
+            st.cache_data.clear()
+            st.rerun()
+
 if __name__ == "__main__":
     main_dashboard()
+
