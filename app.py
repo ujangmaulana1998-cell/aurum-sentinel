@@ -4,10 +4,9 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
+# import yaml / Dihapus karena tidak dibutuhkan lagi
 
-# --- KONFIGURASI SISTEM ---
+# --- 1. KONFIGURASI SISTEM ---
 st.set_page_config(
     page_title="MafaFX Premium",
     page_icon="👑",
@@ -18,54 +17,35 @@ st.set_page_config(
 # --- CUSTOM CSS (Branding) ---
 st.markdown("""
 <style>
-    /* HILANGKAN ELEMENT BAWAAN & BACKGROUND GRADASI */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    .stApp {
-        background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd);
-        background-attachment: fixed;
-    }
-
-    /* TEKS PUTIH & LOGO */
+    #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
+    .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     [data-testid="stImage"] { display: flex; justify-content: center; align-items: center; background-color: transparent !important; }
     img { background-color: transparent !important; max-width: 100%; height: auto; }
-    
-    /* FORM LOGIN BARU */
-    #authentication-form {
-        background-color: rgba(0, 0, 0, 0.2);
-        padding: 30px;
-        border-radius: 20px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        backdrop-filter: blur(4px);
-        margin-top: 10vh; /* Agar form turun ke tengah */
+    [data-testid="stForm"] {
+        background-color: rgba(0, 0, 0, 0.2); padding: 30px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37); backdrop-filter: blur(4px);
     }
-    
-    /* STYLE KARTU METRIK DASHBOARD */
     div[data-testid="stMetric"] {
-        background-color: rgba(0, 0, 0, 0.4) !important;
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        padding: 15px;
-        border-radius: 15px;
-        backdrop-filter: blur(5px);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px;
+        backdrop-filter: blur(5px); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+    /* STYLE INPUT FIELD & TOMBOL */
+    .stTextInput > div > div > input { background-color: rgba(0, 0, 0, 0.5) !important; color: white !important; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); }
+    div.stButton > button, button[kind="primaryFormSubmit"] {
+        width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important;
+        border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3); transition: all 0.3s ease;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. IMPLEMENTASI AUTHENTICATOR PERSISTEN ---
+# --- 2. IMPLEMENTASI AUTHENTICATOR PERSISTEN (FIXED CONFIG) ---
 
-# Catatan: Pengguna harus mengganti password di bawah ini dengan versi HASH (MD5) 
-# yang dihasilkan dari stauth.Hasher.generate_hashes(['password_anda']).
-# Untuk V1 ini, kita pakai password plain text dari st.secrets.
-
-# Kita buat objek config yang meniru struktur YAML yang dibutuhkan authenticator.
+# Konfigurasi disederhanakan, menghapus 'preauthorized'
 config = {
     'cookie': {
-        'expiry_days': 30,  # Bertahan 30 hari tanpa login ulang
-        'key': st.secrets.get("auth_key", "mafafx_secret_key"), # Kunci unik
+        'expiry_days': 30,  
+        'key': st.secrets.get("auth_key", "mafafx_secret_key"),
         'name': 'mafafx_auth' 
     },
     'credentials': {
@@ -73,10 +53,8 @@ config = {
             user: {'email': user + '@mafafx.com', 'name': user, 'password': password} 
             for user, password in st.secrets.get("passwords", {}).items()
         }
-    },
-    'preauthorized': {
-        'emails': ['']
     }
+    # Parameter 'preauthorized' DIHAPUS
 }
 
 # Inisialisasi Authenticator
@@ -84,25 +62,25 @@ authenticator = stauth.Authenticate(
     config['credentials'],
     config['cookie']['name'],
     config['cookie']['key'],
-    config['cookie']['expiry_days'],
-    config['preauthorized']
+    config['cookie']['expiry_days']
+    # Parameter preauthorized DIHAPUS dari sini
 )
 
-# --- 4. TAMPILAN LOGIN BARU ---
+# --- 3. TAMPILAN LOGIN BARU ---
 
-# Tampilan logo di halaman login
 st.markdown("<div id='authentication-form'>", unsafe_allow_html=True)
-try:
-    st.image("logo.png", width=180)
-except:
-     st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+col1, col2, col3 = st.columns([1, 1.5, 1])
+with col2:
+    try:
+        st.image("logo.png", width=180)
+    except:
+        st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
 
-st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
+    # Memanggil Fungsi Login
+    name, authentication_status, username = authenticator.login('Login', 'main')
 
-# Memanggil Fungsi Login
-name, authentication_status, username = authenticator.login('Login', 'main')
-
-st.markdown("</div>", unsafe_allow_html=True) # Tutup div form
+st.markdown("</div>", unsafe_allow_html=True) 
 
 # Cek Status Login
 if authentication_status == False:
@@ -110,20 +88,11 @@ if authentication_status == False:
     st.stop()
 
 if authentication_status == None:
-    # Sedang menunggu input atau belum ada status
     st.stop()
-
-# Jika authentication_status == True: LANJUT KE DASHBOARD
 
 # ==========================================
 # AREA MEMBER MAFAFX (DASHBOARD)
 # ==========================================
-
-# Tombol Logout (Di Sidebar, wajib menggunakan fungsi bawaan authenticator)
-with st.sidebar:
-    st.write(f"Logged in as: **{username}**")
-    authenticator.logout('Logout', 'main') # Fungsi logout bawaan
-    st.write("---") # Garis pemisah
 
 @st.cache_data(ttl=60)
 def fetch_financial_data():
@@ -133,7 +102,6 @@ def fetch_financial_data():
     return df
 
 def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
-    # Logika Analisis
     score = 0; reasons = []
     if dxy_chg > 0.05: score -= 4; reasons.append("USD Menguat (Bearish Gold)")
     elif dxy_chg < -0.05: score += 4; reasons.append("USD Melemah (Bullish Gold)")
@@ -141,7 +109,6 @@ def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
     elif yield_chg < -0.5: score += 5; reasons.append("Yield Turun (Bullish Gold)")
     if oil_chg > 1.0: score += 2; reasons.append("Minyak Naik (Inflasi Hedge)")
     elif oil_chg < -1.0: score -= 1 
-        
     if score >= 6: return "STRONG BUY 🚀", "bias-bullish", score, reasons
     elif score >= 2: return "BUY 🟢", "bias-bullish", score, reasons
     elif score <= -6: return "STRONG SELL 🩸", "bias-bearish", score, reasons
@@ -149,6 +116,13 @@ def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
     else: return "NEUTRAL ⚪", "bias-neutral", score, reasons
 
 def main_dashboard():
+    with st.sidebar:
+        try: st.image("logo.png", width=100)
+        except: pass
+        st.write(f"Logged in as: **{username}**")
+        authenticator.logout('Logout', 'main') 
+        st.write("---") 
+
     col_head_logo, col_head_text = st.columns([1, 6])
     with col_head_logo:
          try: st.image("logo.png", width=120)
@@ -158,14 +132,11 @@ def main_dashboard():
         st.caption(f"Realtime XAUUSD Sentinel | Welcome, {username}")
     st.markdown("---")
     
-    # LOAD DATA DAN TAMPILAN
     with st.spinner('Analisis Market sedang berjalan...'):
         try:
             prices = fetch_financial_data()
             if len(prices) < 2: st.warning("Market Closed."); return
             curr = prices.iloc[-1]; prev = prices.iloc[-2]
-            
-            # Hitung Persentase
             dxy_val = curr.get('DX-Y.NYB'); dxy_prev = prev.get('DX-Y.NYB')
             dxy_pct = ((dxy_val - dxy_prev) / dxy_prev) * 100 if pd.notna(dxy_val) and dxy_prev != 0 else 0
             yield_val = curr.get('^TNX'); yield_prev = prev.get('^TNX')
@@ -176,11 +147,8 @@ def main_dashboard():
             gold_pct = ((gold_val - gold_prev) / gold_prev) * 100 if pd.notna(gold_val) and gold_prev != 0 else 0
             bias_text, css_class, final_score, reason_list = analyze_market_regime(dxy_pct, yield_pct, oil_pct)
 
-            # TAMPILAN
-            st.markdown("### 1. Market Bias Summary")
             col_bias, col_detail = st.columns([1, 2])
-            with col_bias:
-                 st.markdown(f"""<div class="bias-box {css_class}" style="padding:20px; border-radius:15px; text-align:center; border:2px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.5);"><div style="background: transparent; border: none;"><h2 style="margin:0; color:white;">{bias_text}</h2><h4 style="margin:0; color:white;">Score: {final_score}/10</h4></div></div>""", unsafe_allow_html=True)
+            st.markdown(f"""<div style="padding:20px; border-radius:15px; text-align:center; border:2px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.5);"><div class="{css_class}" style="background: transparent; border: none;"><h2 style="margin:0; color:white;">{bias_text}</h2><h4 style="margin:0; color:white;">Score: {final_score}/10</h4></div></div>""", unsafe_allow_html=True)
             with col_detail:
                 st.info("📊 **Analisis Fundamental:**")
                 if reason_list:
@@ -201,12 +169,11 @@ def main_dashboard():
             fig.add_trace(go.Scatter(x=norm_data.index, y=norm_data['^TNX'], name='Yield', line=dict(color='#FF4B4B', dash='dot')))
             fig.update_layout(template="plotly_dark", height=450, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"), margin=dict(l=20, r=20, t=40, b=20))
             st.plotly_chart(fig, use_container_width=True)
-            
             if st.button('🔄 Refresh Data'): st.cache_data.clear(); st.rerun()
 
         except Exception as e: st.error(f"Error: {e}")
 
 if __name__ == "__main__":
-    # Hanya jalankan dashboard jika sudah terautentikasi
     if authentication_status == True:
         main_dashboard()
+
