@@ -1,4 +1,4 @@
 streamlit
 pandas
 plotly
-alpha_vantage.foreign_exchange
+alpha_vantage
