@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-import time
 
 # --- 1. KONFIGURASI SISTEM ---
 st.set_page_config(
@@ -13,7 +12,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# Custom CSS untuk Tampilan Login & Dashboard
+# Custom CSS
 st.markdown("""
 <style>
     .metric-card { background-color: #1E1E1E; border: 1px solid #333; padding: 20px; border-radius: 10px; color: white; }
@@ -29,29 +28,23 @@ st.markdown("""
 def check_password():
     """Returns `True` if the user had a correct password."""
 
-    # Jika user belum login
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
 
-    # Fungsi validasi input
     def password_entered():
-        # Cek apakah username ada di database rahasia
         if st.session_state["username"] in st.secrets["passwords"]:
-            # Cek apakah password cocok
             if st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
                 st.session_state["password_correct"] = True
-                # Hapus password dari memori sesi demi keamanan
                 del st.session_state["password"]  
             else:
                 st.session_state["password_correct"] = False
         else:
             st.session_state["password_correct"] = False
 
-    # Jika sudah login, return True
     if st.session_state["password_correct"]:
         return True
 
-    # TAMPILAN HALAMAN LOGIN
+    # TAMPILAN LOGIN
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         st.markdown("<br><br><h1 style='text-align: center;'>🔒 XAUUSD Sentinel</h1>", unsafe_allow_html=True)
@@ -64,37 +57,33 @@ def check_password():
             st.error("😕 Username atau Password salah.")
             
         st.markdown("<p style='text-align: center; font-size: 0.8em; color: grey;'>Hubungi Admin untuk berlangganan.</p>", unsafe_allow_html=True)
-
     return False
 
-# Jika password salah/belum login, berhenti di sini.
 if not check_password():
     st.stop()
 
 # ==========================================
-# AREA DI BAWAH INI HANYA BISA DIBACA MEMBER
+# AREA MEMBER (HANYA BISA DIBACA SETELAH LOGIN)
 # ==========================================
 
-# --- 3. ENGINE PENGAMBIL DATA (BACKEND) ---
 @st.cache_data(ttl=60)
 def fetch_financial_data():
     tickers = ['GC=F', '^TNX', 'DX-Y.NYB', 'CL=F']
     data = yf.download(tickers, period='5d', interval='15m', progress=False)
     df = data['Close']
-    df = df.ffill() # Fix NaN
+    df = df.ffill() 
     df = df.dropna()
     return df
 
-# --- 4. ENGINE ANALISIS ---
 def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
     score = 0
     reasons = []
-
+    
     if dxy_chg > 0.05: score -= 4; reasons.append("USD Menguat (Bearish Gold)")
     elif dxy_chg < -0.05: score += 4; reasons.append("USD Melemah (Bullish Gold)")
 
-    if yield_chg > 0.5: score -= 5; reasons.append("Yield Obligasi Melonjak (Bearish Gold)")
-    elif yield_chg < -0.5: score += 5; reasons.append("Yield Obligasi Turun (Bullish Gold)")
+    if yield_chg > 0.5: score -= 5; reasons.append("Yield Melonjak (Bearish Gold)")
+    elif yield_chg < -0.5: score += 5; reasons.append("Yield Turun (Bullish Gold)")
         
     if oil_chg > 1.0: score += 2; reasons.append("Minyak Naik (Inflasi Hedge)")
     elif oil_chg < -1.0: score -= 1 
@@ -105,11 +94,9 @@ def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
     elif score <= -2: return "SELL 🔴", "bias-bearish", score, reasons
     else: return "NEUTRAL ⚪", "bias-neutral", score, reasons
 
-# --- 5. TAMPILAN DASHBOARD UTAMA ---
 def main():
-    # Tombol Logout di Sidebar
     with st.sidebar:
-        st.write(f"Logged in as: **{st.session_state['username']}**")
+        st.write(f"User: **{st.session_state['username']}**")
         if st.button("Logout"):
             st.session_state["password_correct"] = False
             st.rerun()
@@ -122,8 +109,7 @@ def main():
             prices = fetch_financial_data()
             if len(prices) < 2: st.warning("Market Closed."); return
 
-            curr = prices.iloc[-1]
-            prev = prices.iloc[-2]
+            curr = prices.iloc[-1]; prev = prices.iloc[-2]
             
             dxy_val = curr.get('DX-Y.NYB'); dxy_prev = prev.get('DX-Y.NYB')
             dxy_pct = ((dxy_val - dxy_prev) / dxy_prev) * 100 if pd.notna(dxy_val) else 0
