@@ -1,4 +1,4 @@
 streamlit
+alpha_vantage
 pandas
 plotly
-alpha_vantage
