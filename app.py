@@ -2,10 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-from alpha_vantage.foreign_exchange import ForeignExchange
-from alpha_vantage.timeseries import TimeSeries
+import requests # <-- Library yang Paling Stabil
 
-# --- 1. KONFIGURASI SISTEM ---
+# --- 1. KONFIGURASI SISTEM & CSS (Sama) ---
 st.set_page_config(
     page_title="MafaFX Premium",
     page_icon="👑",
@@ -13,7 +12,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- CUSTOM CSS (Branding) ---
 st.markdown("""
 <style>
     /* CSS Branding */
@@ -22,14 +20,13 @@ st.markdown("""
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     [data-testid="stImage"] { display: flex; justify-content: center; align-items: center; background-color: transparent !important; }
     img { background-color: transparent !important; max-width: 100%; height: auto; }
-    [data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.2); padding: 30px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1); box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37); backdrop-filter: blur(4px); }
     div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px; backdrop-filter: blur(5px); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3); }
     .stTextInput > div > div > input { background-color: rgba(0, 0, 0, 0.5) !important; color: white !important; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); }
     div.stButton > button { width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important; border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3); transition: all 0.3s ease; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 3. SISTEM LOGIN MANUAL ---
+# --- 3. SISTEM LOGIN MANUAL (Sama) ---
 def check_password():
     if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
     if "username" not in st.session_state: st.session_state["username"] = ""
@@ -57,72 +54,107 @@ if not check_password():
     st.stop()
 
 # ==========================================
-# AREA MEMBER MAFAFX (ALPHA VANTAGE DATA FETCH)
+# AREA MEMBER MAFAFX (FINAL REQUESTS DATA FETCH)
 # ==========================================
+
+def get_alpha_vantage_data(symbol, function_name, api_key):
+    """Fungsi pembantu untuk mengambil data dari Alpha Vantage menggunakan Requests."""
+    if function_name == "FX_INTRADAY":
+        # Untuk XAUUSD (Forex/Physical) dan DXY Proxy (EURUSD)
+        url = f'https://www.alphavantage.co/query?function={function_name}&from_symbol={symbol[0]}&to_symbol={symbol[1]}&interval=15min&outputsize=compact&apikey={api_key}'
+        key_data = 'Time Series FX (15min)'
+    else: # Timeseries/Stock
+        url = f'https://www.alphavantage.co/query?function={function_name}&symbol={symbol}&interval=15min&outputsize=compact&apikey={api_key}'
+        key_data = 'Time Series (15min)'
+
+    try:
+        r = requests.get(url)
+        r.raise_for_status() # Cek error HTTP
+        data = r.json()
+        
+        if key_data in data:
+            return data[key_data]
+        elif 'Note' in data or 'Error Message' in data:
+             # Menangkap error limit atau API key salah
+            st.warning(f"Error API: {data.get('Note', data.get('Error Message', 'Batas API terlampaui atau simbol salah.'))}")
+            return None
+        return None
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error Koneksi HTTP: {e}")
+        return None
+
+def process_intraday_data(json_data, is_inverse=False):
+    """Mengubah JSON data 15m menjadi DataFrame yang sudah di-clean."""
+    if not json_data:
+        return None, None
+
+    df = pd.DataFrame.from_dict(json_data, orient='index')
+    df = df.rename(columns={
+        '1. open': 'open', '2. high': 'high', '3. low': 'low', '4. close': 'close', '5. volume': 'volume'
+    }).astype(float)
+    
+    # Memastikan index adalah datetime dan diurutkan
+    df.index = pd.to_datetime(df.index)
+    df = df.sort_index()
+
+    if is_inverse:
+        # Untuk DXY Proxy (EURUSD), kita balikkan logikanya
+        df['close'] = 100 + (100 - df['close'])
+
+    # Menghitung data normalisasi untuk chart korelasi
+    norm_data = df['close'].pct_change().cumsum()
+    
+    return df, norm_data
 
 @st.cache_data(ttl=60)
 def fetch_financial_data():
     API_KEY = st.secrets["alpha_vantage"]["api_key"]
-    ts = TimeSeries(key=API_KEY, output_format='pandas')
-    fx = ForeignExchange(key=API_KEY, output_format='pandas')
     
-    # 1. AMBIL DATA GOLD (XAUUSD) & DXY PROXY
-    try:
-        # GOLD (XAUUSD)
-        gold_data, meta_gold = fx.get_currency_exchange_intraday(from_symbol='XAU', to_symbol='USD', interval='15min', outputsize='compact')
-        gold_data.columns = ['open', 'high', 'low', 'close', 'volume']
-        
-        # DXY PROXY (EURUSD dibalik)
-        dxy_proxy, meta_dxy = fx.get_currency_exchange_intraday(from_symbol='EUR', to_symbol='USD', interval='15min', outputsize='compact')
-        dxy_proxy.columns = ['open', 'high', 'low', 'close', 'volume']
-        
-    except Exception as e:
-        # Menangkap error batas API limit atau koneksi
-        if 'You have exceeded the maximum allowed calls' in str(e):
-            st.error("🚨 Batas Panggilan API Alpha Vantage Terlampaui. Coba lagi dalam 1 menit.")
-        else:
-            st.error(f"Error Koneksi Data (Alpha Vantage). Cek API Key atau Batas Harian. Detail: {e}")
-        return None, None, None
+    # 1. AMBIL DATA DENGAN REQUESTS
+    # Gold (XAUUSD)
+    gold_json = get_alpha_vantage_data(['XAU', 'USD'], 'FX_INTRADAY', API_KEY)
+    
+    # DXY Proxy (EURUSD) - Kita pakai EURUSD dan balikkan logikanya
+    dxy_json = get_alpha_vantage_data(['EUR', 'USD'], 'FX_INTRADAY', API_KEY)
+    
+    # US10Y Yield dan Crude Oil tetap N/A karena tidak tersedia gratis
+    
+    # 2. PROSES DATA
+    df_gold, norm_gold = process_intraday_data(gold_json)
+    df_dxy, norm_dxy = process_intraday_data(dxy_json, is_inverse=True)
 
-    # 2. KOMPILASI DATA & LOGIKA
-    
-    # Ambil harga terakhir
-    current_gold = gold_data['close'].iloc[-1]
-    current_dxy_proxy = 100 + (100 - dxy_proxy['close'].iloc[-1])
-    
-    # Ambil harga sebelumnya
-    prev_gold = gold_data['close'].iloc[-2]
-    prev_dxy_proxy = 100 + (100 - dxy_proxy['close'].iloc[-2])
+    if df_gold is None or df_dxy is None:
+        return None, None, None # Gagal mengambil data
 
-    # KUMPULKAN CURRENT VALUES
+    # Ambil nilai terakhir (Current) dan sebelumnya (Prev)
     curr_values = pd.Series({
-        'GOLD': current_gold,
-        'DXY': current_dxy_proxy,
-        'OIL': 0.00,
+        'GOLD': df_gold['close'].iloc[-1],
+        'DXY': df_dxy['close'].iloc[-1],
+        'OIL': 0.00, 
         'YIELD': 0.00
     })
     
-    # KUMPULKAN PREVIOUS VALUES
     prev_values = pd.Series({
-        'GOLD': prev_gold,
-        'DXY': prev_dxy_proxy,
+        'GOLD': df_gold['close'].iloc[-2],
+        'DXY': df_dxy['close'].iloc[-2],
         'OIL': 0.00,
         'YIELD': 0.00
     })
 
     # DATA HISTORIS untuk Chart
-    norm_gold = gold_data['close'].pct_change().cumsum()
-    norm_dxy = dxy_proxy['close'].pct_change().cumsum() * -1
-
     df_history = pd.DataFrame({
         'GOLD': norm_gold,
         'DXY': norm_dxy,
-        'YIELD': norm_gold * 0 
+        'YIELD': norm_gold * 0 # Placeholder untuk grafik
     }).dropna()
+
+    # Pastikan data korelasi memiliki indeks yang sama
+    df_history = df_history.loc[df_history.index.intersection(df_history.index)]
 
     return curr_values, prev_values, df_history
 
 def analyze_market_regime(curr, prev):
+    # Logika analisis dipertahankan, Yield/Oil diabaikan
     dxy_chg = ((curr['DXY'] - prev['DXY']) / prev['DXY']) * 100 if prev['DXY'] != 0 else 0
     
     score = 0; reasons = []
@@ -130,7 +162,6 @@ def analyze_market_regime(curr, prev):
     if dxy_chg > 0.01: score -= 4; reasons.append("USD Menguat (Bearish Gold)")
     elif dxy_chg < -0.01: score += 4; reasons.append("USD Melemah (Bullish Gold)")
 
-    # Logika Yield/Oil diabaikan karena data = 0
     if score >= 4: return "STRONG BUY 🚀", "bias-bullish", score, reasons
     elif score >= 2: return "BUY 🟢", "bias-bullish", score, reasons
     elif score <= -4: return "STRONG SELL 🩸", "bias-bearish", score, reasons
@@ -160,8 +191,7 @@ def main_dashboard():
         try:
             curr, prev, norm_data = fetch_financial_data()
             
-            if curr is None: 
-                return 
+            if curr is None: return 
 
             # Perhitungan %
             gold_pct = ((curr['GOLD'] - prev['GOLD']) / prev['GOLD']) * 100 if prev['GOLD'] != 0 else 0
@@ -204,4 +234,3 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
-
