@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="MafaFX Premium",
     page_icon="👑",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 # --- CUSTOM CSS (Branding MafaFX) ---
@@ -20,6 +20,15 @@ st.markdown("""
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px; }
     div.stButton > button { width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important; border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; }
+    
+    /* Styling khusus Logo agar rata tengah */
+    [data-testid="stSidebar"] [data-testid="stImage"] {
+        text-align: center;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+        width: 100%;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -31,7 +40,12 @@ def check_password():
 
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+        # --- LOGO DI HALAMAN LOGIN ---
+        try:
+            st.image("logo.png", width=200) # Pastikan file logo.png ada di GitHub
+        except:
+            st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+            
         st.markdown("<h3 style='text-align: center;'>Real-Time Intelligence</h3>", unsafe_allow_html=True)
         with st.form("credentials"):
             st.text_input("Username", key="username")
@@ -63,7 +77,6 @@ def get_twelvedata(symbol, interval, api_key):
         
         # Cek Error API
         if "status" in data and data["status"] == "error":
-            # Jangan stop aplikasi, return None saja agar bisa retry
             return None
             
         return data.get("values", [])
@@ -86,20 +99,20 @@ def process_data(values, inverse=False):
         
         if inverse:
             # DXY Proxy (EUR/USD dibalik logikanya)
-            # Jika EURUSD turun, DXY naik.
             change_pct = -1 * ((current - prev) / prev) * 100
             chart_data = (df['close'].pct_change().cumsum() * -1) # Chart dibalik
+            display_price = (1 / current) * 100 
         else:
             change_pct = ((current - prev) / prev) * 100
             chart_data = df['close'].pct_change().cumsum()
+            display_price = current
             
-        return current, change_pct, chart_data
-    except:
+        return display_price, change_pct, chart_data
+    except Exception as e:
         return None, None, None
 
-@st.cache_data(ttl=60) # Cache 60 detik (Hemat Kuota API)
+@st.cache_data(ttl=60) # Cache 60 detik (Hemat Kuota API tapi Realtime)
 def fetch_market_data():
-    # Ambil API Key dari Secrets [twelvedata]
     try:
         api_key = st.secrets["twelvedata"]["api_key"]
     except:
@@ -110,7 +123,6 @@ def fetch_market_data():
     gold_raw = get_twelvedata("XAU/USD", "15min", api_key)
     
     # 2. DXY PROXY (EUR/USD Realtime)
-    # Twelve Data DXY asli berbayar, jadi kita pakai EUR/USD sebagai proxy terbalik.
     dxy_raw = get_twelvedata("EUR/USD", "15min", api_key)
     
     if not gold_raw or not dxy_raw: return None
@@ -120,7 +132,7 @@ def fetch_market_data():
     
     return {
         'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart},
-        'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart} # Harga EURUSD, tapi Change & Chart DXY
+        'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart} 
     }
 
 # ==========================================
@@ -128,9 +140,17 @@ def fetch_market_data():
 # ==========================================
 
 def main_dashboard():
-    # Sidebar
+    # --- SIDEBAR DENGAN LOGO ---
     with st.sidebar:
+        try:
+            st.image("logo.png", width=150) # LOGO DISINI
+        except:
+            st.write("### 👑 MafaFX")
+        
+        st.markdown("---")
         st.write(f"User: **{st.session_state.get('username')}**")
+        st.caption("Status: Premium Active")
+        
         if st.button("Logout"): 
             st.session_state["password_correct"] = False
             st.rerun()
@@ -159,11 +179,10 @@ def main_dashboard():
         score = 0
         signal_text = "NEUTRAL ⚪"
         
-        # Logika: Jika Dolar (DXY) Menguat > 0.05%, Emas Tertekan.
-        if dxy['chg'] > 0.05: 
+        if dxy['chg'] > 0.03: 
             score -= 5
             signal_text = "BEARISH PRESSURE 🔴"
-        elif dxy['chg'] < -0.05: 
+        elif dxy['chg'] < -0.03: 
             score += 5
             signal_text = "BULLISH MOMENTUM 🟢"
             
@@ -179,18 +198,16 @@ def main_dashboard():
         # METRIK HARGA
         c1, c2, c3 = st.columns(3)
         c1.metric("🥇 XAU/USD (Live)", f"${gold['price']:,.2f}", f"{gold['chg']:.2f}%")
-        c2.metric("💵 USD Strength (Est)", f"{dxy['price']:.4f}", f"{dxy['chg']:.2f}%", delta_color="inverse")
+        c2.metric("💵 USD Strength (Est)", f"{dxy['price']:.2f}", f"{dxy['chg']:.2f}%", delta_color="inverse")
         c3.metric("📊 Volatilitas", "Active", "Real-Time")
         
-        # CHART KORELASI (The Edge)
+        # CHART KORELASI
         st.markdown("### 📉 Live Market Correlation")
         st.caption("Grafik ini membandingkan Emas vs Kekuatan Dolar. Jika garis Merah naik, garis Emas biasanya turun.")
         
         if gold['chart'] is not None and dxy['chart'] is not None:
             fig = go.Figure()
-            # Plot Gold
             fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', fill='tozeroy', line=dict(color='#FFD700', width=2)))
-            # Plot DXY (Inverted EURUSD)
             fig.add_trace(go.Scatter(y=dxy['chart'], mode='lines', name='USD Strength', line=dict(color='#FF4B4B', dash='dot', width=2)))
             
             fig.update_layout(template="plotly_dark", height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
@@ -204,4 +221,5 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
+
 
