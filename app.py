@@ -4,7 +4,6 @@ import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
 import streamlit_authenticator as stauth
-# import yaml / Dihapus karena tidak dibutuhkan lagi
 
 # --- 1. KONFIGURASI SISTEM ---
 st.set_page_config(
@@ -17,6 +16,7 @@ st.set_page_config(
 # --- CUSTOM CSS (Branding) ---
 st.markdown("""
 <style>
+    /* Dihapus agar fokus pada logic dan tidak terlalu panjang */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
@@ -30,7 +30,6 @@ st.markdown("""
         background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px;
         backdrop-filter: blur(5px); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
-    /* STYLE INPUT FIELD & TOMBOL */
     .stTextInput > div > div > input { background-color: rgba(0, 0, 0, 0.5) !important; color: white !important; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); }
     div.stButton > button, button[kind="primaryFormSubmit"] {
         width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important;
@@ -41,7 +40,6 @@ st.markdown("""
 
 # --- 2. IMPLEMENTASI AUTHENTICATOR PERSISTEN (FIXED CONFIG) ---
 
-# Konfigurasi disederhanakan, menghapus 'preauthorized'
 config = {
     'cookie': {
         'expiry_days': 30,  
@@ -54,16 +52,13 @@ config = {
             for user, password in st.secrets.get("passwords", {}).items()
         }
     }
-    # Parameter 'preauthorized' DIHAPUS
 }
 
-# Inisialisasi Authenticator
 authenticator = stauth.Authenticate(
     config['credentials'],
     config['cookie']['name'],
     config['cookie']['key'],
     config['cookie']['expiry_days']
-    # Parameter preauthorized DIHAPUS dari sini
 )
 
 # --- 3. TAMPILAN LOGIN BARU ---
@@ -77,8 +72,8 @@ with col2:
         st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
 
-    # Memanggil Fungsi Login
-    name, authentication_status, username = authenticator.login('Login', 'main')
+    # BARIS KRITIS YANG DIPERBAIKI (Location dibuat eksplisit)
+    name, authentication_status, username = authenticator.login('Login', location='main') 
 
 st.markdown("</div>", unsafe_allow_html=True) 
 
@@ -176,4 +171,3 @@ def main_dashboard():
 if __name__ == "__main__":
     if authentication_status == True:
         main_dashboard()
-
