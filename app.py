@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from datetime import datetime
-import streamlit_authenticator as stauth
 
 # --- 1. KONFIGURASI SISTEM ---
 st.set_page_config(
@@ -16,7 +15,7 @@ st.set_page_config(
 # --- CUSTOM CSS (Branding) ---
 st.markdown("""
 <style>
-    /* Dihapus agar fokus pada logic dan tidak terlalu panjang */
+    /* HILANGKAN ELEMENT BAWAAN & BACKGROUND GRADASI */
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
@@ -31,62 +30,58 @@ st.markdown("""
         backdrop-filter: blur(5px); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
     }
     .stTextInput > div > div > input { background-color: rgba(0, 0, 0, 0.5) !important; color: white !important; border-radius: 10px; border: 1px solid rgba(255, 255, 255, 0.3); }
-    div.stButton > button, button[kind="primaryFormSubmit"] {
+    div.stButton > button {
         width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important;
         border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; font-size: 16px; box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3); transition: all 0.3s ease;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 2. IMPLEMENTASI AUTHENTICATOR PERSISTEN (FIXED CONFIG) ---
+# --- 2. SISTEM LOGIN MANUAL (QUICK FIX) ---
 
-config = {
-    'cookie': {
-        'expiry_days': 30,  
-        'key': st.secrets.get("auth_key", "mafafx_secret_key"),
-        'name': 'mafafx_auth' 
-    },
-    'credentials': {
-        'usernames': {
-            user: {'email': user + '@mafafx.com', 'name': user, 'password': password} 
-            for user, password in st.secrets.get("passwords", {}).items()
-        }
-    }
-}
+def check_password():
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+    
+    if "username" not in st.session_state:
+        st.session_state["username"] = "" # Inisialisasi username
 
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+    def password_entered():
+        # Memastikan kunci password ada sebelum diakses
+        if "password" in st.session_state and st.session_state["username"] in st.secrets["passwords"]:
+            if st.session_state["password"] == st.secrets["passwords"][st.session_state["username"]]:
+                st.session_state["password_correct"] = True
+            else:
+                st.session_state["password_correct"] = False
+        else:
+            st.session_state["password_correct"] = False
 
-# --- 3. TAMPILAN LOGIN BARU ---
+    if st.session_state["password_correct"]:
+        return True
 
-st.markdown("<div id='authentication-form'>", unsafe_allow_html=True)
-col1, col2, col3 = st.columns([1, 1.5, 1])
-with col2:
-    try:
-        st.image("logo.png", width=180)
-    except:
-        st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
+    # TAMPILAN LOGIN
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        try:
+            st.image("logo.png", width=180)
+        except:
+             st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
 
-    # BARIS KRITIS YANG DIPERBAIKI (Dibuat sangat eksplisit dengan key unik)
-    name, authentication_status, username = authenticator.login(
-        'login_form', 
-        location='main',
-        key='unique_mafafx_login_key' # Parameter ini seringkali dibutuhkan di versi terbaru
-    )
+        with st.form("credentials"):
+            st.text_input("Username", key="username")
+            st.text_input("Password", type="password", key="password")
+            submitted = st.form_submit_button("MASUK / LOGIN")
+            if submitted: 
+                password_entered()
 
-st.markdown("</div>", unsafe_allow_html=True) 
+        if "password_correct" in st.session_state and not st.session_state["password_correct"] and submitted:
+            st.error("🔒 Username atau Password salah.")
+            
+        st.markdown("<p style='text-align: center; font-size: 0.8em; opacity: 0.8; margin-top: 20px;'>© MafaFX Proprietary System.</p>", unsafe_allow_html=True)
+    return False
 
-# Cek Status Login
-if authentication_status == False:
-    st.error('Username/Password Salah. Cek kembali.')
-    st.stop()
-
-if authentication_status == None:
+if not check_password():
     st.stop()
 
 # ==========================================
@@ -115,11 +110,12 @@ def analyze_market_regime(dxy_chg, yield_chg, oil_chg):
     else: return "NEUTRAL ⚪", "bias-neutral", score, reasons
 
 def main_dashboard():
+    username = st.session_state.get("username", "Klien") # Gunakan username dari session
     with st.sidebar:
         try: st.image("logo.png", width=100)
         except: pass
         st.write(f"Logged in as: **{username}**")
-        authenticator.logout('Logout', 'main') 
+        if st.button('Logout'): st.session_state["password_correct"] = False; st.rerun()
         st.write("---") 
 
     col_head_logo, col_head_text = st.columns([1, 6])
@@ -173,5 +169,4 @@ def main_dashboard():
         except Exception as e: st.error(f"Error: {e}")
 
 if __name__ == "__main__":
-    if authentication_status == True:
-        main_dashboard()
+    main_dashboard()
