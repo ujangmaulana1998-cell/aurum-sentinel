@@ -72,8 +72,12 @@ with col2:
         st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
     st.markdown("<h3 style='text-align: center; margin-top:10px; margin-bottom: 20px;'>Premium Login</h3>", unsafe_allow_html=True)
 
-    # BARIS KRITIS YANG DIPERBAIKI (Location dibuat eksplisit)
-    name, authentication_status, username = authenticator.login('Login', location='main') 
+    # BARIS KRITIS YANG DIPERBAIKI (Dibuat sangat eksplisit dengan key unik)
+    name, authentication_status, username = authenticator.login(
+        'login_form', 
+        location='main',
+        key='unique_mafafx_login_key' # Parameter ini seringkali dibutuhkan di versi terbaru
+    )
 
 st.markdown("</div>", unsafe_allow_html=True) 
 
