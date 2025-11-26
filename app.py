@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import hashlib
-from datetime import datetime, timedelta, timezone 
+from datetime import datetime, timedelta
 
 # ==========================================
 # 1. KONFIGURASI SISTEM DAN CSS
@@ -31,7 +31,6 @@ st.markdown("""
         backdrop-filter: blur(5px); 
         color: white !important;
     }
-    /* Styling tombol utama (Refresh/Logout/Tes) */
     div.stButton > button { 
         width: 100%; 
         background: linear-gradient(to right, #FFD700, #E5C100) !important; 
@@ -40,13 +39,7 @@ st.markdown("""
         border-radius: 10px; 
         border: none; 
         padding: 12px 0px; 
-        margin-top: 5px; 
-    }
-    div.stButton > button:last-child {
-        width: 50%;
-        margin-left: 25%;
-        margin-right: 25%;
-        margin-top: 15px;
+        margin-top: 5px;
     }
     [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
     div[data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.5); padding: 30px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.3); }
@@ -79,14 +72,18 @@ def check_password():
                 st.session_state["username"] = user
                 break
 
-    if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
+    if "password_correct" not in st.session_state: 
+        st.session_state["password_correct"] = False
     
-    if st.session_state["password_correct"]: return True
+    if st.session_state["password_correct"]: 
+        return True
 
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        try: st.image("logo.png", width=200)
-        except: st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+        try: 
+            st.image("logo.png", width=200)
+        except: 
+            st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
             
         st.markdown("<h3 style='text-align: center;'>Real-Time Intelligence</h3>", unsafe_allow_html=True)
         
@@ -109,7 +106,8 @@ def check_password():
                     
     return False
 
-if not check_password(): st.stop()
+if not check_password(): 
+    st.stop()
 
 
 # 🟢 FUNGSI PENGIRIM NOTIFIKASI TELEGRAM MULTI-DESTINASI
@@ -150,12 +148,15 @@ def get_twelvedata(symbol, interval, api_key):
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
-        if "status" in data and data["status"] == "error": return None
+        if "status" in data and data["status"] == "error": 
+            return None
         return data.get("values", [])
-    except: return None
+    except: 
+        return None
 
 def process_data(values, inverse=False):
-    if not values: return None, None, None
+    if not values: 
+        return None, None, None
     try:
         df = pd.DataFrame(values)
         df['datetime'] = pd.to_datetime(df['datetime'])
@@ -173,7 +174,8 @@ def process_data(values, inverse=False):
             chart_data = df['close'] 
             display_price = current
         return display_price, change_pct, chart_data
-    except: return None, None, None
+    except: 
+        return None, None, None
 
 @st.cache_data(ttl=3600) 
 def fetch_economic_calendar():
@@ -190,19 +192,21 @@ def fetch_economic_calendar():
     try:
         response = requests.get(url, timeout=10)
         data = response.json().get("economicCalendar", [])
-        if not data: return pd.DataFrame()
+        if not data: 
+            return pd.DataFrame()
         df = pd.DataFrame(data)
-        df = df[ (df['country'] == 'US') & (df['impact'] == 'high') ].copy() 
-        if df.empty: return pd.DataFrame()
+        df = df[(df['country'] == 'US') & (df['impact'] == 'high')].copy() 
+        if df.empty: 
+            return pd.DataFrame()
         df['datetime_utc'] = pd.to_datetime(df['date'])
         df['WIB'] = df['datetime_utc'].apply(lambda x: x.tz_localize('UTC').tz_convert('Asia/Jakarta'))
         df_display = df[['WIB', 'event', 'actual', 'forecast', 'previous']].rename(columns={
             'WIB': 'Waktu (WIB)', 'event': 'Acara Berita', 'actual': 'Aktual',
             'forecast': 'Konsensus', 'previous': 'Sebelum'
         })
-        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)').dt.strftime('%a, %d %b %H:%M')
+        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)'].dt.strftime('%a, %d %b %H:%M')
         return df_display
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 @st.cache_data(ttl=3600) 
@@ -223,20 +227,25 @@ def fetch_sentiment():
         bearish = sentiment.get('bearishPercent', 50)
         net_score = (bullish - bearish) / 100 
         return {'net_score': net_score, 'bullish': bullish, 'bearish': bearish, 'error': False}
-    except Exception as e:
+    except Exception:
         return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': True}
 
 
 @st.cache_data(ttl=3600) 
 def fetch_market_data():
     """Mengambil semua data pasar."""
-    try: api_key = st.secrets["twelvedata"]["api_key"]
-    except: st.error("Twelve Data API Key Missing"); return None
+    try: 
+        api_key = st.secrets["twelvedata"]["api_key"]
+    except: 
+        st.error("Twelve Data API Key Missing")
+        return None
 
     gold_raw = get_twelvedata("XAU/USD", "1h", api_key) 
     dxy_raw = get_twelvedata("EUR/USD", "1h", api_key)
     
-    if not gold_raw or not dxy_raw: st.warning("Twelve Data tidak ditemukan."); return None
+    if not gold_raw or not dxy_raw: 
+        st.warning("Twelve Data tidak ditemukan.")
+        return None
     
     g_price, g_chg, g_chart = process_data(gold_raw)
     d_price, d_chg, d_chart = process_data(dxy_raw, inverse=True)
@@ -261,27 +270,25 @@ def main_dashboard():
 
     # --- SIDEBAR (HANYA INFO) ---
     with st.sidebar:
-        try: st.image("logo.png", width=150)
-        except: st.write("### 👑 MafaFX")
+        try: 
+            st.image("logo.png", width=150)
+        except: 
+            st.write("### 👑 MafaFX")
         st.markdown("---")
         st.write(f"User: **{st.session_state.get('username')}**")
         st.caption("Timeframe: H1 (1 Jam)") 
         st.caption("Status: Premium Active")
-        # Tombol Logout DIHAPUS dari sini
 
-    # --- HEADER (REFRESH & LOGOUT BARU) ---
+    # --- HEADER (REFRESH & LOGOUT) ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
         st.title("MafaFX Premium (Fundamental Trading)")
         st.caption("⚡ Data H1 Real-Time - Waktu Indonesia Barat")
     with col_refresh:
-        # PENTING: Tombol Refresh dan Logout diletakkan berdekatan
         if st.button("🔄 Refresh Data"): 
             st.cache_data.clear()
             st.rerun()
-        
-        # 🚪 LOGOUT DENGAN IKON BARU
-        if st.button("🚪 Logout"): 
+        if st.button("Logout"): 
             st.session_state["password_correct"] = False
             st.query_params.clear() 
             st.rerun()
@@ -315,7 +322,7 @@ def main_dashboard():
             if sentiment['net_score'] < -0.2:
                 signal_text = "JUAL KUAT 🔴 (Didukung Sentimen Bearish)"
             elif sentiment['net_score'] > 0.2:
-                 signal_text = "JUAL WASPADA 🔴 (Sentimen Pasar Bullish)"
+                signal_text = "JUAL WASPADA 🔴 (Sentimen Pasar Bullish)"
             else:
                 signal_text = "TEKANAN JUAL (SELL) 🔴"
             
@@ -416,9 +423,9 @@ def main_dashboard():
         st.markdown("<h3 style='text-align: center;'>Uji Koneksi Telegram</h3>", unsafe_allow_html=True)
         
         if st.button("🧪 Tes Kirim Notifikasi Telegram Sekarang"):
-             if send_telegram_notification("✅ *[MAFAFX TEST]* Notifikasi Telegram berhasil terkirim!"):
+            if send_telegram_notification("✅ *[MAFAFX TEST]* Notifikasi Telegram berhasil terkirim!"):
                 st.success("Notifikasi tes terkirim! Pesan dikirim ke SEMUA CHAT_IDS.")
-             else:
+            else:
                 st.error("Gagal mengirim notifikasi. Cek BOT_TOKEN dan CHAT_IDS di Secrets, dan pastikan Bot adalah Admin di semua Channel/Group.")
 
 # ==========================================
