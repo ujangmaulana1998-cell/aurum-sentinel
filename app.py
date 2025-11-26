@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -32,6 +31,7 @@ st.markdown("""
         backdrop-filter: blur(5px); 
         color: white !important;
     }
+    /* Styling tombol utama (Refresh/Logout/Tes) */
     div.stButton > button { 
         width: 100%; 
         background: linear-gradient(to right, #FFD700, #E5C100) !important; 
@@ -40,12 +40,13 @@ st.markdown("""
         border-radius: 10px; 
         border: none; 
         padding: 12px 0px; 
-        margin-top: 10px; 
+        margin-top: 5px; /* Mengurangi margin atas agar tombol lebih rapat */
     }
     div.stButton > button:last-child {
         width: 50%;
         margin-left: 25%;
         margin-right: 25%;
+        margin-top: 15px; /* Margin untuk tombol tes di bawah */
     }
     [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
     div[data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.5); padding: 30px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.3); }
@@ -111,12 +112,11 @@ def check_password():
 if not check_password(): st.stop()
 
 
-# 🟢 FUNGSI BARU: PENGIRIM NOTIFIKASI TELEGRAM MULTI-DESTINASI
+# 🟢 FUNGSI PENGIRIM NOTIFIKASI TELEGRAM MULTI-DESTINASI
 def send_telegram_notification(message):
     """Mengirim pesan ke beberapa Channel/Group sekaligus."""
     try:
         bot_token = st.secrets["telegram"]["BOT_TOKEN"]
-        # 🔴 MENGAMBIL DAFTAR CHAT_IDS DAN MEMBAGINYA
         chat_ids_str = st.secrets["telegram"]["CHAT_IDS"]
         chat_ids_list = [id.strip() for id in chat_ids_str.split(',')]
     except KeyError:
@@ -142,8 +142,7 @@ def send_telegram_notification(message):
 
 
 # ==========================================
-# 3. ENGINE DATA (TWELVE DATA & FINNHUB)
-# (Fungsi-fungsi Data tetap sama)
+# 3. ENGINE DATA (Data Fetching Functions)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
@@ -185,7 +184,9 @@ def fetch_economic_calendar():
 
     today = datetime.now().strftime('%Y-%m-%d')
     seven_days_later = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+    
     url = f"https://finnhub.io/api/v1/calendar/economic?from={today}&to={seven_days_later}&token={api_key}"
+    
     try:
         response = requests.get(url, timeout=10)
         data = response.json().get("economicCalendar", [])
@@ -258,7 +259,7 @@ def main_dashboard():
     if 'last_signal' not in st.session_state:
         st.session_state['last_signal'] = "NEUTRAL"
 
-    # --- SIDEBAR ---
+    # --- SIDEBAR (HANYA INFO) ---
     with st.sidebar:
         try: st.image("logo.png", width=150)
         except: st.write("### 👑 MafaFX")
@@ -266,24 +267,27 @@ def main_dashboard():
         st.write(f"User: **{st.session_state.get('username')}**")
         st.caption("Timeframe: H1 (1 Jam)") 
         st.caption("Status: Premium Active")
-        
-        if st.button("Logout"): 
-            st.session_state["password_correct"] = False
-            st.query_params.clear() 
-            st.rerun()
+        # Tombol Logout DIHAPUS dari sini
 
-    # --- HEADER & DATA FETCHING ---
-    # ... (code for header and data fetching remains the same) ...
+    # --- HEADER (REFRESH & LOGOUT) ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
         st.title("MafaFX Premium (Fundamental Trading)")
         st.caption("⚡ Data H1 Real-Time - Waktu Indonesia Barat")
     with col_refresh:
-        st.write("")
-        if st.button("🔄 Refresh Data"): st.cache_data.clear(); st.rerun()
+        # PENTING: Tombol Refresh dan Logout diletakkan berdekatan
+        if st.button("🔄 Refresh Data"): 
+            st.cache_data.clear()
+            st.rerun()
+        if st.button("Logout"): 
+            st.session_state["password_correct"] = False
+            st.query_params.clear() 
+            st.rerun()
 
+    # --- DATA FETCHING & LOGIKA SINYAL (Sisanya Tetap Sama) ---
     with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Data Fundamental...'):
         data = fetch_market_data()
+        # ... (Logika Sinyal dan Tampilan Dashboard lainnya) ...
         
         if data is None:
             st.warning("Menunggu data Real-Time... (Cek API Key di Secrets)")
@@ -293,7 +297,6 @@ def main_dashboard():
         dxy = data['DXY']
         sentiment = data['SENTIMENT']
         
-        # --- LOGIKA SINYAL (UTAMA) ---
         current_signal = "NEUTRAL"
         signal_color = "#FFFFFF"
         signal_text = "NEUTRAL ⚪"
@@ -336,13 +339,10 @@ def main_dashboard():
                 f"--------------------------------------\n"
                 f"⏳ Sinyal sebelumnya: {st.session_state['last_signal']}"
             )
-            # Pesan akan dikirim ke semua CHAT_IDS
             send_telegram_notification(message)
             st.session_state['last_signal'] = current_signal
 
-        # --- TAMPILAN DASHBOARD ---
-        
-        # KOTAK SINYAL UTAMA
+        # TAMPILAN DASHBOARD
         st.markdown(f"""
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
             <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
@@ -351,7 +351,6 @@ def main_dashboard():
         </div>
         """, unsafe_allow_html=True)
         
-        # Tampilan Sentimen
         col_sent1, col_sent2, col_sent3 = st.columns(3)
         calendar = data['CALENDAR']
 
@@ -364,7 +363,7 @@ def main_dashboard():
             
         st.markdown("---")
         
-        # GRAFIK SPLIT VIEW (Traffic Light)
+        # GRAFIK SPLIT VIEW
         st.markdown("### 🚦 Analisis Arus & Tekanan H1 (WIB)")
         
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
@@ -411,9 +410,7 @@ def main_dashboard():
         else:
             st.info("Tidak ada berita High Impact USD yang terdeteksi untuk 7 hari ke depan.")
 
-        # ==================================================
-        # 🟢 TOMBOL TES NOTIFIKASI (DI BAWAH) 🟢
-        # ==================================================
+        # TOMBOL TES NOTIFIKASI (DI BAWAH)
         st.markdown("---")
         st.markdown("<h3 style='text-align: center;'>Uji Koneksi Telegram</h3>", unsafe_allow_html=True)
         
