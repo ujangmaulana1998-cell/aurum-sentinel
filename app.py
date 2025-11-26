@@ -40,13 +40,13 @@ st.markdown("""
         border-radius: 10px; 
         border: none; 
         padding: 12px 0px; 
-        margin-top: 5px; /* Mengurangi margin atas agar tombol lebih rapat */
+        margin-top: 5px; 
     }
     div.stButton > button:last-child {
         width: 50%;
         margin-left: 25%;
         margin-right: 25%;
-        margin-top: 15px; /* Margin untuk tombol tes di bawah */
+        margin-top: 15px;
     }
     [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
     div[data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.5); padding: 30px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.3); }
@@ -200,7 +200,7 @@ def fetch_economic_calendar():
             'WIB': 'Waktu (WIB)', 'event': 'Acara Berita', 'actual': 'Aktual',
             'forecast': 'Konsensus', 'previous': 'Sebelum'
         })
-        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)'].dt.strftime('%a, %d %b %H:%M')
+        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)').dt.strftime('%a, %d %b %H:%M')
         return df_display
     except Exception as e:
         return pd.DataFrame()
@@ -269,7 +269,7 @@ def main_dashboard():
         st.caption("Status: Premium Active")
         # Tombol Logout DIHAPUS dari sini
 
-    # --- HEADER (REFRESH & LOGOUT) ---
+    # --- HEADER (REFRESH & LOGOUT BARU) ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
         st.title("MafaFX Premium (Fundamental Trading)")
@@ -279,15 +279,16 @@ def main_dashboard():
         if st.button("🔄 Refresh Data"): 
             st.cache_data.clear()
             st.rerun()
-        if st.button("Logout"): 
+        
+        # 🚪 LOGOUT DENGAN IKON BARU
+        if st.button("🚪 Logout"): 
             st.session_state["password_correct"] = False
             st.query_params.clear() 
             st.rerun()
 
-    # --- DATA FETCHING & LOGIKA SINYAL (Sisanya Tetap Sama) ---
+    # --- DATA FETCHING & LOGIKA SINYAL ---
     with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Data Fundamental...'):
         data = fetch_market_data()
-        # ... (Logika Sinyal dan Tampilan Dashboard lainnya) ...
         
         if data is None:
             st.warning("Menunggu data Real-Time... (Cek API Key di Secrets)")
