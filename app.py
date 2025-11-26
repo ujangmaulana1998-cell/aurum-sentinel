@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -21,24 +20,11 @@ st.set_page_config(
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
-    /* Background Gradient Premium */
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
-    
-    /* Typography */
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
-    
-    /* Glassmorphism Card Effect */
     div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px; backdrop-filter: blur(5px); }
-    
-    /* Button Style Gold */
     div.stButton > button { width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important; border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; }
-    
-    /* Logo Center di Sidebar */
-    [data-testid="stSidebar"] [data-testid="stImage"] {
-        text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%;
-    }
-    
-    /* Styling Form Login */
+    [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
     div[data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.5); padding: 30px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.3); }
 </style>
 """, unsafe_allow_html=True)
@@ -96,7 +82,6 @@ def check_password():
                 if user in VALID_USERS and VALID_USERS[user] == pwd:
                     st.session_state["password_correct"] = True
                     st.session_state["username"] = user
-                    # SIMPAN TOKEN KE URL
                     token = get_session_token(user, pwd)
                     st.query_params["auth_token"] = token
                     st.rerun()
@@ -109,11 +94,13 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. ENGINE TWELVE DATA (WIB CONVERSION)
+# 3. ENGINE TWELVE DATA (H1 WIB)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=35"
+    """Mengambil data dari Twelve Data dengan interval yang ditentukan."""
+    # Outputsize 35 jam data, cocok untuk analisis swing
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=35" 
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
@@ -129,7 +116,6 @@ def process_data(values, inverse=False):
         
         # --- KONVERSI KE WIB (UTC + 7 Jam) ---
         df['datetime'] = df['datetime'] + pd.Timedelta(hours=7)
-        # ------------------------------------------
         
         df = df.set_index('datetime').sort_index()
         df['close'] = df['close'].astype(float)
@@ -137,7 +123,7 @@ def process_data(values, inverse=False):
         current = df['close'].iloc[-1]
         prev = df['close'].iloc[-2]
         
-        if inverse: # DXY Proxy (EUR/USD dibalik)
+        if inverse: 
             change_pct = -1 * ((current - prev) / prev) * 100
             chart_data = df['close'].pct_change() * -1 
             display_price = (1 / current) * 100 
@@ -149,15 +135,17 @@ def process_data(values, inverse=False):
         return display_price, change_pct, chart_data
     except: return None, None, None
 
-@st.cache_data(ttl=60) # Cache 1 Menit
+@st.cache_data(ttl=3600) # Cache diperpanjang menjadi 1 jam
 def fetch_market_data():
+    """Fetch data dari Twelve Data dengan interval 1 Jam."""
     try: api_key = st.secrets["twelvedata"]["api_key"]
     except: st.error("API Key Missing"); return None
 
-    gold_raw = get_twelvedata("XAU/USD", "15min", api_key)
-    dxy_raw = get_twelvedata("EUR/USD", "15min", api_key)
+    # 🔴 PERUBAHAN KRUSIAL: Menggunakan interval 1 jam (1h)
+    gold_raw = get_twelvedata("XAU/USD", "1h", api_key) 
+    dxy_raw = get_twelvedata("EUR/USD", "1h", api_key)
     
-    if not gold_raw or not dxy_raw: return None
+    if not gold_raw or not dxy_raw: st.warning("Data tidak ditemukan."); return None
     
     g_price, g_chg, g_chart = process_data(gold_raw)
     d_price, d_chg, d_chart = process_data(dxy_raw, inverse=True)
@@ -168,7 +156,7 @@ def fetch_market_data():
     }
 
 # ==========================================
-# 4. DASHBOARD UTAMA (FUNGSI main_dashboard)
+# 4. DASHBOARD UTAMA
 # ==========================================
 
 def main_dashboard():
@@ -178,10 +166,9 @@ def main_dashboard():
         except: st.write("### 👑 MafaFX")
         st.markdown("---")
         st.write(f"User: **{st.session_state.get('username')}**")
-        st.caption("Timezone: WIB (UTC+7)")
+        st.caption("Timeframe: H1 (1 Jam)") # Info Timeframe
         st.caption("Status: Premium Active")
         
-        # Logout dipanggil oleh check_password() saat login berhasil
         if st.button("Logout"): 
             st.session_state["password_correct"] = False
             st.query_params.clear() 
@@ -190,14 +177,14 @@ def main_dashboard():
     # --- HEADER ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
-        st.title("MafaFX Premium")
-        st.caption("⚡ Real-Time Price Action (Waktu Indonesia Barat)")
+        st.title("MafaFX Premium (Swing/Intraday)")
+        st.caption("⚡ Data H1 (1 Jam) Real-Time - Waktu Indonesia Barat")
     with col_refresh:
         st.write("")
         if st.button("🔄 Refresh Data"): st.cache_data.clear(); st.rerun()
 
     # --- DATA FETCHING ---
-    with st.spinner('Sinkronisasi Data WIB...'):
+    with st.spinner('Menghitung Tekanan Harian...'):
         data = fetch_market_data()
         
         if data is None:
@@ -211,12 +198,12 @@ def main_dashboard():
         signal_color = "#FFFFFF"
         signal_text = "NEUTRAL ⚪"
         
-        # Logika Sederhana & Efektif
-        if dxy['chg'] > 0.02: 
-            signal_text = "TEKANAN JUAL (SELL) 🔴"
+        # 🔴 PERUBAHAN KRUSIAL: Ambang batas sinyal diubah dari 0.02 menjadi 0.05
+        if dxy['chg'] > 0.05: 
+            signal_text = "TEKANAN JUAL KUAT (SELL) 🔴"
             signal_color = "#FF4B4B"
-        elif dxy['chg'] < -0.02: 
-            signal_text = "PELUANG BELI (BUY) 🟢"
+        elif dxy['chg'] < -0.05: 
+            signal_text = "PELUANG BELI KUAT (BUY) 🟢"
             signal_color = "#00CC96"
 
         # KOTAK SINYAL UTAMA
@@ -224,16 +211,16 @@ def main_dashboard():
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
             <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
             <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['price']:,.2f}</h3>
-            <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 15 Menit: {gold['chg']:.2f}%</p>
+            <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 1 Jam: {gold['chg']:.2f}%</p>
         </div>
         """, unsafe_allow_html=True)
         
         # --- GRAFIK SPLIT VIEW (Traffic Light) ---
-        st.markdown("### 🚦 Analisis Arus & Tekanan (WIB)")
+        st.markdown("### 🚦 Analisis Arus & Tekanan H1 (WIB)")
         
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.05, row_heights=[0.65, 0.35],
-                            subplot_titles=("1. Harga Emas (Akibat)", "2. Tekanan Dolar (Sebab)"))
+                            subplot_titles=("1. Harga Emas (H1 Akibat)", "2. Tekanan Dolar (H1 Sebab)"))
 
         # Grafik 1: Harga Emas (Area)
         fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Harga Emas', 
@@ -265,7 +252,5 @@ def main_dashboard():
 # 5. PEMANGGIL FUNGSI UTAMA
 # ==========================================
 
-# Setelah check_password() berhasil, maka main_dashboard akan dipanggil
 if __name__ == "__main__":
     main_dashboard()
-
