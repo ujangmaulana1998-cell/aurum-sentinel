@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -23,7 +24,14 @@ st.markdown("""
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
-    div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border: 1px solid rgba(255, 255, 255, 0.2); padding: 15px; border-radius: 15px; backdrop-filter: blur(5px); }
+    div[data-testid="stMetric"] { 
+        background-color: rgba(0, 0, 0, 0.4) !important; 
+        border: 1px solid rgba(255, 255, 255, 0.2); 
+        padding: 15px; 
+        border-radius: 15px; 
+        backdrop-filter: blur(5px); 
+        color: white !important; /* Memastikan teks metrik putih */
+    }
     div.stButton > button { width: 100%; background: linear-gradient(to right, #FFD700, #E5C100) !important; color: black !important; font-weight: 800 !important; border-radius: 10px; border: none; padding: 12px 0px; margin-top: 10px; }
     [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
     div[data-testid="stForm"] { background-color: rgba(0, 0, 0, 0.5); padding: 30px; border-radius: 15px; border: 1px solid rgba(255, 255, 255, 0.3); }
@@ -98,7 +106,7 @@ if not check_password(): st.stop()
 
 
 # ==========================================
-# 3. ENGINE TWELVE DATA & FINNHUB (H1 WIB)
+# 3. ENGINE DATA (TWELVE DATA & FINNHUB)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
@@ -139,13 +147,12 @@ def process_data(values, inverse=False):
         return display_price, change_pct, chart_data
     except: return None, None, None
 
-@st.cache_data(ttl=3600) # Cache 1 jam
+@st.cache_data(ttl=3600) 
 def fetch_economic_calendar():
     """Mengambil dan memproses Kalender Ekonomi High Impact US dari Finnhub."""
     try:
         api_key = st.secrets["finnhub"]["api_key"]
     except KeyError:
-        st.warning("Finnhub API Key Missing in Secrets.")
         return pd.DataFrame() 
 
     today = datetime.now().strftime('%Y-%m-%d')
@@ -161,21 +168,13 @@ def fetch_economic_calendar():
 
         df = pd.DataFrame(data)
         
-        # 1. Filter: Hanya US dan High Impact (Level 3)
-        df = df[
-            (df['country'] == 'US') & 
-            (df['impact'] == 'high')
-        ].copy() 
+        df = df[ (df['country'] == 'US') & (df['impact'] == 'high') ].copy() 
         
         if df.empty: return pd.DataFrame()
 
-        # 2. Konversi Waktu ke WIB
         df['datetime_utc'] = pd.to_datetime(df['date'])
-        
-        # Konversi ke WIB (Asia/Jakarta)
         df['WIB'] = df['datetime_utc'].apply(lambda x: x.tz_localize('UTC').tz_convert('Asia/Jakarta'))
 
-        # 3. Format Ulang Data untuk Tampilan
         df_display = df[['WIB', 'event', 'actual', 'forecast', 'previous']].rename(columns={
             'WIB': 'Waktu (WIB)',
             'event': 'Acara Berita',
@@ -189,10 +188,42 @@ def fetch_economic_calendar():
     except Exception as e:
         return pd.DataFrame()
 
+# 🟢 FUNGSI BARU: Mengambil dan Menghitung Sentimen Pasar
+@st.cache_data(ttl=3600) 
+def fetch_sentiment():
+    """Mengambil skor sentimen pasar (Bullish vs Bearish) untuk GLD (proxy Emas/Dolar) dari Finnhub."""
+    try:
+        api_key = st.secrets["finnhub"]["api_key"]
+    except KeyError:
+        return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': True}
+
+    # Menggunakan GLD (ETF Emas) sebagai proxy untuk sentimen Bullish/Bearish terhadap Emas/Dolar
+    symbol = "GLD" 
+    url = f"https://finnhub.io/api/v1/news-sentiment?symbol={symbol}&token={api_key}"
+    
+    try:
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        
+        if 'sentiment' not in data:
+            return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': False}
+        
+        sentiment = data['sentiment']
+        
+        bullish = sentiment.get('bullishPercent', 50)
+        bearish = sentiment.get('bearishPercent', 50)
+        
+        # Hitung Net Score: (Bullish - Bearish) / 100
+        net_score = (bullish - bearish) / 100 
+        
+        return {'net_score': net_score, 'bullish': bullish, 'bearish': bearish, 'error': False}
+    except Exception as e:
+        return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': True}
+
 
 @st.cache_data(ttl=3600) 
 def fetch_market_data():
-    """Fetch data dari Twelve Data dan Kalender dari Finnhub."""
+    """Mengambil semua data pasar."""
     try: api_key = st.secrets["twelvedata"]["api_key"]
     except: st.error("Twelve Data API Key Missing"); return None
 
@@ -205,11 +236,13 @@ def fetch_market_data():
     d_price, d_chg, d_chart = process_data(dxy_raw, inverse=True)
     
     calendar_data = fetch_economic_calendar()
+    sentiment_data = fetch_sentiment() # 🟢 Ambil data sentimen
 
     return {
         'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart},
         'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart},
-        'CALENDAR': calendar_data
+        'CALENDAR': calendar_data,
+        'SENTIMENT': sentiment_data # 🟢 Masukkan Sentimen ke dalam data
     }
 
 # ==========================================
@@ -241,7 +274,7 @@ def main_dashboard():
         if st.button("🔄 Refresh Data"): st.cache_data.clear(); st.rerun()
 
     # --- DATA FETCHING ---
-    with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Kalender...'):
+    with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Data Fundamental...'):
         data = fetch_market_data()
         
         if data is None:
@@ -251,16 +284,34 @@ def main_dashboard():
         gold = data['GOLD']
         dxy = data['DXY']
         calendar = data['CALENDAR']
+        sentiment = data['SENTIMENT'] # 🟢 Ambil data Sentimen
         
-        # --- SINYAL VISUAL ---
+        # --- LOGIKA SINYAL & SENTIMEN ---
         signal_color = "#FFFFFF"
         signal_text = "NEUTRAL ⚪"
         
+        # Penyesuaian sinyal berdasarkan Sentimen (Skor Net):
+        # Sentimen Kuat Bullish (Net Score > 0.2) = Mendorong BUY
+        # Sentimen Kuat Bearish (Net Score < -0.2) = Mendorong SELL
+        
         if dxy['chg'] > 0.05: 
-            signal_text = "TEKANAN JUAL KUAT (SELL) 🔴"
+            # TEKANAN JUAL (Dolar Kuat)
+            if sentiment['net_score'] < -0.2:
+                signal_text = "JUAL KUAT 🔴 (Didukung Sentimen Bearish)"
+            elif sentiment['net_score'] > 0.2:
+                 signal_text = "JUAL WASPADA 🔴 (Sentimen Pasar Bullish)"
+            else:
+                signal_text = "TEKANAN JUAL (SELL) 🔴"
             signal_color = "#FF4B4B"
+            
         elif dxy['chg'] < -0.05: 
-            signal_text = "PELUANG BELI KUAT (BUY) 🟢"
+            # PELUANG BELI (Dolar Lemah)
+            if sentiment['net_score'] > 0.2:
+                signal_text = "BELI KUAT 🟢 (Didukung Sentimen Bullish)"
+            elif sentiment['net_score'] < -0.2:
+                signal_text = "BELI WASPADA 🟢 (Sentimen Pasar Bearish)"
+            else:
+                signal_text = "PELUANG BELI (BUY) 🟢"
             signal_color = "#00CC96"
 
         # KOTAK SINYAL UTAMA
@@ -271,6 +322,18 @@ def main_dashboard():
             <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 1 Jam: {gold['chg']:.2f}%</p>
         </div>
         """, unsafe_allow_html=True)
+        
+        # 🟢 TAMPILAN SENTIMEN PASAR BARU (Di bawah Sinyal Utama)
+        col_sent1, col_sent2, col_sent3 = st.columns(3)
+        
+        if not sentiment['error']:
+            col_sent1.metric("Skor Sentimen Bersih (Net)", f"{sentiment['net_score']:.2f}", help="Sentimen Bullish - Bearish. Positif = Optimis Emas.")
+            col_sent2.metric("Bullish (%)", f"{sentiment['bullish']:.1f}%")
+            col_sent3.metric("Bearish (%)", f"{sentiment['bearish']:.1f}%")
+        else:
+            st.info("Gagal mengambil data Sentimen. Cek API Key Finnhub Anda.")
+            
+        st.markdown("---") # Garis Pemisah
         
         # --- GRAFIK SPLIT VIEW (Traffic Light) ---
         st.markdown("### 🚦 Analisis Arus & Tekanan H1 (WIB)")
@@ -300,14 +363,11 @@ def main_dashboard():
 
         st.plotly_chart(fig, use_container_width=True)
         
-        # --- LEGEND PEMULA (Di atas Kalender) ---
+        # --- LEGEND & KALENDER EKONOMI ---
         c1, c2 = st.columns(2)
         c1.error("**🟥 MERAH:** Dolar Kuat (Menekan Emas). Fokus pada posisi JUAL (SELL).")
         c2.success("**🟩 HIJAU:** Dolar Lemah (Melegakan Emas). Fokus pada posisi BELI (BUY).")
 
-        # ==================================================
-        # 🔴 BAGIAN KALENDER EKONOMI BARU 🔴
-        # ==================================================
         st.markdown("---")
         st.markdown("### 🚨 Filter Fundamental: High Impact USD News (WIB)")
         
@@ -322,7 +382,7 @@ def main_dashboard():
                 }
             )
         else:
-            st.info("Tidak ada berita High Impact USD yang terdeteksi untuk 7 hari ke depan, atau Finnhub API Key belum diisi.")
+            st.info("Tidak ada berita High Impact USD yang terdeteksi untuk 7 hari ke depan.")
 
 # ==========================================
 # 5. PEMANGGIL FUNGSI UTAMA
