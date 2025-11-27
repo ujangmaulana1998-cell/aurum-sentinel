@@ -6,7 +6,6 @@ import requests
 import hashlib
 import numpy as np
 from datetime import datetime, timedelta
-import pytz
 
 # ==========================================
 # 1. KONFIGURASI SISTEM DAN CSS
@@ -19,14 +18,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS (UI PREMI) ---
+# --- CUSTOM CSS ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* Kartu Metrik Transparan */
+    /* Metric Cards */
     div[data-testid="stMetric"] { 
         background-color: rgba(0, 0, 0, 0.4) !important; 
         border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -36,7 +35,7 @@ st.markdown("""
         color: white !important;
     }
     
-    /* Kotak Outlook Pasar */
+    /* Outlook Box */
     .outlook-box {
         background-color: rgba(0, 0, 0, 0.3);
         border-left: 5px solid #FFD700;
@@ -47,7 +46,16 @@ st.markdown("""
     }
     .outlook-title { font-weight: bold; color: #FFD700; font-size: 1.1em; margin-bottom: 5px; }
 
-    /* Tombol Header Minimalis */
+    /* Key Levels Box (Support/Resis) */
+    .sr-box {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        border: 1px dashed rgba(255,255,255,0.3);
+    }
+
+    /* Buttons */
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
         background-color: transparent !important;
         border: 1px solid rgba(255,255,255,0.3) !important;
@@ -151,6 +159,7 @@ def send_telegram_notification(message):
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
+    # Outputsize 50 cukup untuk H1 (2 hari data) untuk hitung S/R
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50" 
     try:
         response = requests.get(url, timeout=10)
@@ -164,7 +173,6 @@ def calculate_rsi(prices, period=14):
         prices = np.array(prices).astype(float)
         if len(prices) < period + 1: return 50.0
         
-        # Twelve Data urutannya usually Newest to Oldest, tapi kita sudah reverse di process_data
         deltas = np.diff(prices)
         seed = deltas[:period+1]
         up = seed[seed >= 0].sum()/period
@@ -194,8 +202,8 @@ def process_data(values, inverse=False):
     try:
         df = pd.DataFrame(values)
         df['datetime'] = pd.to_datetime(df['datetime'])
-        df['datetime'] = df['datetime'] + pd.Timedelta(hours=7) # Convert to WIB
-        df = df.set_index('datetime').sort_index() # Sort Oldest -> Newest
+        df['datetime'] = df['datetime'] + pd.Timedelta(hours=7) 
+        df = df.set_index('datetime').sort_index() 
         df['close'] = df['close'].astype(float)
         
         price_history = df['close'].values 
@@ -214,53 +222,48 @@ def process_data(values, inverse=False):
         return display_price, change_pct, chart_data, price_history
     except: return None, None, None, None
 
-# 🟢 SUMBER BERITA BARU: FOREX FACTORY (CSV)
+# 🟢 BARU: FUNGSI HITUNG SUPPORT/RESISTANCE DARI RAW DATA
+def calculate_sr_levels(raw_values):
+    """Menghitung Support (Terendah) dan Resisten (Tertinggi) 24 Jam Terakhir."""
+    try:
+        if not raw_values: return None
+        
+        # Buat DataFrame
+        df = pd.DataFrame(raw_values)
+        df['high'] = df['high'].astype(float)
+        df['low'] = df['low'].astype(float)
+        df['close'] = df['close'].astype(float)
+        
+        # Ambil 24 data terakhir (Asumsi H1, jadi 24 jam)
+        # TwelveData urutannya Newest First (index 0 adalah jam ini)
+        # Jadi kita ambil index 0 sampai 24
+        window = df.head(24) 
+        
+        resistance = window['high'].max()
+        support = window['low'].min()
+        pivot = window['close'].mean() # Simple Pivot (Avg Close)
+        
+        return {'R1': resistance, 'S1': support, 'P': pivot}
+    except:
+        return {'R1': 0, 'S1': 0, 'P': 0}
+
 @st.cache_data(ttl=3600) 
 def fetch_forex_factory_calendar():
-    """Mengambil Kalender Ekonomi dari Forex Factory (Fokus USD)."""
     try:
-        # URL Publik CSV Forex Factory Minggu Ini
         csv_url = "https://nfs.faireconomy.media/ff_calendar_thisweek.csv"
-        
-        # Baca CSV
         df = pd.read_csv(csv_url)
-        
-        # Filter hanya USD
         df = df[df['Country'] == 'USD'].copy()
-        
-        # Filter Impact (High & Medium)
         df = df[df['Impact'].isin(['High', 'Medium'])].copy()
-        
-        # Parsing Waktu
-        # Format asli biasanya MM-DD-YYYY dan HH:mmam/pm
         df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], format='%m-%d-%Y %I:%M%p', errors='coerce')
-        
-        # Konversi ke WIB (Asumsi server FF adalah New York/UTC-4/5, tapi biasanya kita perlu adjust manual atau cek timezone)
-        # Seringkali CSV ini dalam UTC atau EST. Kita coba mapping sederhana:
-        # Untuk keamanan, kita tampilkan jam aslinya + indikasi, 
-        # TAPI cara terbaik: CSV FF biasanya Eastern Time.
-        # Eastern is UTC-4 (Summer) / UTC-5. WIB is UTC+7. Beda +11 atau +12 jam.
-        
-        # Kita pakai pendekatan sederhana: Tambah 11 Jam (Estimasi) atau biarkan user cek jam.
-        # Agar akurat, kita gunakan library timezone jika memungkinkan, tapi simple add juga oke.
-        df['WIB'] = df['DateTime'] + pd.Timedelta(hours=11) # Estimasi EST ke WIB (Summer)
-        
-        # Filter hanya yg belum lewat hari ini (atau tampilkan semua minggu ini)
-        # Kita tampilkan yg relevan saja
+        df['WIB'] = df['DateTime'] + pd.Timedelta(hours=11) 
         df = df.sort_values('DateTime')
-        
-        # Rename & Select Columns
         df_display = df[['WIB', 'Title', 'Impact', 'Forecast', 'Previous']].rename(columns={
             'WIB': 'Waktu (WIB Est)', 'Title': 'Berita', 'Impact': 'Dampak',
             'Forecast': 'Fcst', 'Previous': 'Prev'
         })
-        
-        # Format Tanggal agar cantik
         df_display['Waktu (WIB Est)'] = df_display['Waktu (WIB Est)'].dt.strftime('%a, %d %b %H:%M')
-        
         return df_display
-    except Exception as e:
-        # Fallback jika gagal (return empty dataframe)
+    except:
         return pd.DataFrame()
 
 def calculate_technical_sentiment(prices):
@@ -271,31 +274,24 @@ def calculate_technical_sentiment(prices):
     except:
         return {'net_score': 0, 'bullish': 50, 'bearish': 50, 'error': True}
 
-# 🟢 FUNGSI BARU: GENERATE MARKET OUTLOOK
 def generate_market_outlook(dxy_change, gold_rsi):
-    """Menulis analisis pasar otomatis."""
-    # Analisis Dolar
     if dxy_change > 0.05:
-        dxy_text = "Dolar AS (DXY) sedang menguat. Ini menekan harga Emas."
-        bias_dxy = "Bearish Gold"
+        dxy_text = "Dolar AS menguat. Menekan Emas."
     elif dxy_change < -0.05:
-        dxy_text = "Dolar AS (DXY) melemah. Sentimen positif untuk Emas."
-        bias_dxy = "Bullish Gold"
+        dxy_text = "Dolar AS melemah. Mendukung Emas."
     else:
-        dxy_text = "Dolar AS bergerak stabil (Sideways). Pasar menunggu katalis."
-        bias_dxy = "Neutral"
+        dxy_text = "Dolar AS stabil (Sideways)."
 
-    # Analisis Emas (RSI)
     if gold_rsi > 70:
-        gold_text = "Emas sudah Overbought (Jenuh Beli). Waspada koreksi turun."
+        gold_text = "Emas Overbought (Rawan Turun)."
     elif gold_rsi < 30:
-        gold_text = "Emas sudah Oversold (Jenuh Jual). Potensi pantulan naik."
+        gold_text = "Emas Oversold (Potensi Naik)."
     elif gold_rsi > 55:
-        gold_text = "Momentum pembeli (Bullish) masih ada, namun belum ekstrem."
+        gold_text = "Momentum Bullish."
     elif gold_rsi < 45:
-        gold_text = "Tekanan penjual (Bearish) dominan saat ini."
+        gold_text = "Tekanan Bearish."
     else:
-        gold_text = "Harga Emas berada di zona Netral/Konsolidasi."
+        gold_text = "Pasar Konsolidasi/Netral."
     
     return f"{dxy_text} {gold_text}"
 
@@ -312,13 +308,14 @@ def fetch_market_data():
     g_price, g_chg, g_chart, g_hist = process_data(gold_raw)
     d_price, d_chg, d_chart, d_hist = process_data(dxy_raw, inverse=True)
     
-    # Ambil Data Kalender Baru (Forex Factory)
-    calendar_data = fetch_forex_factory_calendar()
+    # Hitung SR
+    sr_levels = calculate_sr_levels(gold_raw)
     
+    calendar_data = fetch_forex_factory_calendar()
     sentiment_data = calculate_technical_sentiment(g_hist)
 
     return {
-        'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart, 'hist': g_hist},
+        'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart, 'hist': g_hist, 'sr': sr_levels},
         'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart},
         'CALENDAR': calendar_data,
         'SENTIMENT': sentiment_data
@@ -340,7 +337,7 @@ def main_dashboard():
         st.caption("Timeframe: H1 (1 Jam)") 
         st.caption("Status: Premium Active")
 
-    # --- HEADER MINIMALIS ---
+    # --- HEADER ---
     col_head, col_act = st.columns([5, 2])
     with col_head:
         st.title("MafaFX Premium")
@@ -357,7 +354,7 @@ def main_dashboard():
                 st.query_params.clear() 
                 st.rerun()
 
-    # --- LOGIKA & TAMPILAN ---
+    # --- MAIN LOGIC ---
     with st.spinner('Menganalisis Pasar...'):
         data = fetch_market_data()
         
@@ -368,8 +365,8 @@ def main_dashboard():
         gold = data['GOLD']
         dxy = data['DXY']
         sentiment = data['SENTIMENT']
+        sr = gold['sr'] # Data S/R
         
-        # Logika Sinyal
         current_signal = "NEUTRAL"
         signal_color = "#FFFFFF"
         
@@ -387,18 +384,18 @@ def main_dashboard():
         else:
             signal_text = "NEUTRAL (WAIT & SEE) ⚪"
 
-        # Notifikasi Telegram
+        # Notifikasi
         if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
             message = (
                 f"🚨 *[MAFAFX ALERT]*\n"
                 f"Sinyal: *{signal_text}*\n"
                 f"Harga: ${gold['price']:,.2f}\n"
-                f"RSI: {sentiment['bullish']:.1f}"
+                f"S1: {sr['S1']:.2f} | R1: {sr['R1']:.2f}"
             )
             send_telegram_notification(message)
             st.session_state['last_signal'] = current_signal
 
-        # 1. VISUALISASI UTAMA
+        # 1. VISUALISASI HARGA
         st.markdown(f"""
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
             <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
@@ -407,19 +404,39 @@ def main_dashboard():
         </div>
         """, unsafe_allow_html=True)
         
-        # 2. SEKSI OUTLOOK PASAR (AI GENERATED)
-        outlook_text = generate_market_outlook(dxy['chg'], sentiment['bullish'])
-        st.markdown(f"""
-        <div class="outlook-box">
-            <div class="outlook-title">📢 AI Market Outlook (Gold & Dollar)</div>
-            <p style="margin: 0; font-size: 1.05em;">{outlook_text}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col_sent1, col_sent2, col_sent3 = st.columns(3)
-        col_sent1.metric("Skor Teknikal RSI", f"{sentiment['net_score']:.2f}")
-        col_sent2.metric("Bullish Power", f"{sentiment['bullish']:.1f}")
-        col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}")
+        # 2. KEY LEVELS (S/R) & OUTLOOK
+        c_sr, c_outlook = st.columns([1, 2])
+        
+        with c_sr:
+            st.markdown("### 🎯 Key Levels (24H)")
+            # Tampilan S/R Sederhana
+            st.markdown(f"""
+            <div class="sr-box" style="border-color: #FF4B4B;">
+                <small style="color: #FF4B4B;">RESISTANCE (Ceiling)</small><br>
+                <b style="font-size: 1.2em;">${sr['R1']:,.2f}</b>
+            </div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #FFD700;">
+                <small style="color: #FFD700;">PIVOT (Avg)</small><br>
+                <b style="font-size: 1.2em;">${sr['P']:,.2f}</b>
+            </div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #00CC96;">
+                <small style="color: #00CC96;">SUPPORT (Floor)</small><br>
+                <b style="font-size: 1.2em;">${sr['S1']:,.2f}</b>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with c_outlook:
+            st.markdown("### 📢 AI Market Outlook")
+            outlook_text = generate_market_outlook(dxy['chg'], sentiment['bullish'])
+            st.markdown(f"""
+            <div class="outlook-box">
+                <p style="margin: 0; font-size: 1.1em; line-height: 1.6;">{outlook_text}</p>
+                <br>
+                <small>Teknikal RSI: <b>{sentiment['bullish']:.1f}/100</b></small>
+            </div>
+            """, unsafe_allow_html=True)
             
         st.markdown("---")
         
@@ -443,7 +460,7 @@ def main_dashboard():
                           margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
         st.plotly_chart(fig, use_container_width=True)
         
-        # 4. KALENDER FOREX FACTORY (FOKUS USD)
+        # 4. KALENDER FOREX FACTORY
         st.markdown("---")
         c_news, c_tips = st.columns([2, 1])
         
@@ -453,14 +470,14 @@ def main_dashboard():
             if not calendar.empty:
                 st.dataframe(calendar, use_container_width=True, hide_index=True)
             else:
-                st.info("Tidak ada berita High Impact USD minggu ini atau data tidak tersedia.")
+                st.info("Tidak ada berita High Impact USD minggu ini.")
         
         with c_tips:
             st.markdown("### 💡 Tips Trading")
             st.info("""
-            * **Berita High Impact:** Pasar sering volatil 15 menit sebelum & sesudah rilis.
-            * **DXY vs Gold:** Biasanya berkorelasi negatif (DXY Naik = Gold Turun).
-            * **Gunakan RSI:** Konfirmasi sinyal Buy/Sell dengan level RSI (30/70).
+            * **Support (S1):** Area bagus untuk mencari Buy (jika ada konfirmasi).
+            * **Resistance (R1):** Area bagus untuk mencari Sell/Take Profit.
+            * **Pivot:** Penentu tren jangka pendek. Di atas Pivot = Bullish.
             """)
 
 if __name__ == "__main__":
