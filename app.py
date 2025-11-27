@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import requests
 import hashlib
+import numpy as np
 from datetime import datetime, timedelta, timezone 
 
 # ==========================================
@@ -31,7 +32,6 @@ st.markdown("""
         backdrop-filter: blur(5px); 
         color: white !important;
     }
-    /* Styling tombol utama (Refresh/Logout/Tes) */
     div.stButton > button { 
         width: 100%; 
         background: linear-gradient(to right, #FFD700, #E5C100) !important; 
@@ -56,7 +56,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. SISTEM LOGIN "STICKY" (ANTI-LOGOUT)
+# 2. SISTEM LOGIN
 # ==========================================
 
 def get_session_token(username, password):
@@ -112,9 +112,8 @@ def check_password():
 if not check_password(): st.stop()
 
 
-# 🟢 FUNGSI PENGIRIM NOTIFIKASI TELEGRAM MULTI-DESTINASI
+# 🟢 FUNGSI NOTIFIKASI TELEGRAM
 def send_telegram_notification(message):
-    """Mengirim pesan ke beberapa Channel/Group sekaligus."""
     try:
         bot_token = st.secrets["telegram"]["BOT_TOKEN"]
         chat_ids_str = st.secrets["telegram"]["CHAT_IDS"]
@@ -130,7 +129,6 @@ def send_telegram_notification(message):
             'text': message,
             'parse_mode': 'Markdown'
         }
-        
         try:
             response = requests.post(url, data=payload, timeout=5)
             if response.status_code != 200:
@@ -142,11 +140,11 @@ def send_telegram_notification(message):
 
 
 # ==========================================
-# 3. ENGINE DATA (Data Fetching Functions)
+# 3. ENGINE DATA (RSI SENTIMENT FIX)
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=35" 
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50" # Need 50 for good RSI
     try:
         response = requests.get(url, timeout=10)
         data = response.json()
@@ -154,16 +152,49 @@ def get_twelvedata(symbol, interval, api_key):
         return data.get("values", [])
     except: return None
 
+def calculate_rsi(prices, period=14):
+    """Menghitung RSI secara manual."""
+    try:
+        deltas = np.diff(prices)
+        seed = deltas[:period+1]
+        up = seed[seed >= 0].sum()/period
+        down = -seed[seed < 0].sum()/period
+        rs = up/down
+        rsi = np.zeros_like(prices)
+        rsi[:period] = 100. - 100./(1. + rs)
+
+        for i in range(period, len(prices)):
+            delta = deltas[i-1] 
+            if delta > 0:
+                upval = delta
+                downval = 0.
+            else:
+                upval = 0.
+                downval = -delta
+
+            up = (up * (period - 1) + upval) / period
+            down = (down * (period - 1) + downval) / period
+            rs = up/down
+            rsi[i] = 100. - 100./(1. + rs)
+        return rsi[-1] # Return latest RSI
+    except:
+        return 50.0
+
 def process_data(values, inverse=False):
-    if not values: return None, None, None
+    if not values: return None, None, None, None
     try:
         df = pd.DataFrame(values)
         df['datetime'] = pd.to_datetime(df['datetime'])
         df['datetime'] = df['datetime'] + pd.Timedelta(hours=7)
         df = df.set_index('datetime').sort_index()
         df['close'] = df['close'].astype(float)
+        
+        # Simpan harga close untuk perhitungan RSI nanti
+        prices_series = df['close'].values 
+        
         current = df['close'].iloc[-1]
         prev = df['close'].iloc[-2]
+        
         if inverse: 
             change_pct = -1 * ((current - prev) / prev) * 100
             chart_data = df['close'].pct_change() * -1 
@@ -172,12 +203,12 @@ def process_data(values, inverse=False):
             change_pct = ((current - prev) / prev) * 100
             chart_data = df['close'] 
             display_price = current
-        return display_price, change_pct, chart_data
-    except: return None, None, None
+            
+        return display_price, change_pct, chart_data, prices_series
+    except: return None, None, None, None
 
 @st.cache_data(ttl=3600) 
 def fetch_economic_calendar():
-    """Mengambil dan memproses Kalender Ekonomi High Impact US dari Finnhub."""
     try:
         api_key = st.secrets["finnhub"]["api_key"]
     except KeyError:
@@ -191,51 +222,49 @@ def fetch_economic_calendar():
     try:
         response = requests.get(url, timeout=10)
         data = response.json().get("economicCalendar", [])
-        
         if not data: return pd.DataFrame()
-
         df = pd.DataFrame(data)
-        
         df = df[ (df['country'] == 'US') & (df['impact'] == 'high') ].copy() 
-        
         if df.empty: return pd.DataFrame()
-
         df['datetime_utc'] = pd.to_datetime(df['date'])
-        
         df['WIB'] = df['datetime_utc'].apply(lambda x: x.tz_localize('UTC').tz_convert('Asia/Jakarta'))
-
         df_display = df[['WIB', 'event', 'actual', 'forecast', 'previous']].rename(columns={
             'WIB': 'Waktu (WIB)', 'event': 'Acara Berita', 'actual': 'Aktual',
             'forecast': 'Konsensus', 'previous': 'Sebelum'
         })
-        
-        # PERBAIKAN BUG: Syntax error fixed here
         df_display['Waktu (WIB)'] = df_display['Waktu (WIB)'].dt.strftime('%a, %d %b %H:%M')
-        
         return df_display
     except Exception as e:
         return pd.DataFrame()
 
-@st.cache_data(ttl=3600) 
-def fetch_sentiment():
+# 🟢 BARU: FUNGSI SENTIMEN TEKNIKAL (PENGGANTI FINNHUB YANG ERROR)
+def calculate_technical_sentiment(gold_prices):
+    """Menghitung Sentimen Pasar berdasarkan RSI dan Tren Harga."""
     try:
-        api_key = st.secrets["finnhub"]["api_key"]
-    except KeyError:
-        return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': True}
-    symbol = "GLD" 
-    url = f"https://finnhub.io/api/v1/news-sentiment?symbol={symbol}&token={api_key}"
-    try:
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        if 'sentiment' not in data:
-            return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': False}
-        sentiment = data['sentiment']
-        bullish = sentiment.get('bullishPercent', 50)
-        bearish = sentiment.get('bearishPercent', 50)
-        net_score = (bullish - bearish) / 100 
-        return {'net_score': net_score, 'bullish': bullish, 'bearish': bearish, 'error': False}
+        if gold_prices is None or len(gold_prices) < 20:
+             return {'net_score': 0, 'bullish': 50, 'bearish': 50, 'status': 'Neutral'}
+
+        # Hitung RSI (Relative Strength Index)
+        rsi_val = calculate_rsi(gold_prices)
+        
+        # Logika Sentimen berdasarkan RSI
+        # RSI 0-100. RSI 50 = Netral. 
+        # Kita mapping RSI ke "Bullish %"
+        
+        bullish_pct = rsi_val
+        bearish_pct = 100 - rsi_val
+        
+        # Net Score scale: -1 (Total Bear) to +1 (Total Bull)
+        net_score = (bullish_pct - bearish_pct) / 100
+        
+        return {
+            'net_score': net_score,
+            'bullish': bullish_pct,
+            'bearish': bearish_pct,
+            'error': False
+        }
     except Exception as e:
-        return {'net_score': 0, 'bullish': 0, 'bearish': 0, 'error': True}
+        return {'net_score': 0, 'bullish': 50, 'bearish': 50, 'error': True}
 
 
 @st.cache_data(ttl=3600) 
@@ -249,11 +278,13 @@ def fetch_market_data():
     
     if not gold_raw or not dxy_raw: st.warning("Twelve Data tidak ditemukan."); return None
     
-    g_price, g_chg, g_chart = process_data(gold_raw)
-    d_price, d_chg, d_chart = process_data(dxy_raw, inverse=True)
+    g_price, g_chg, g_chart, g_history = process_data(gold_raw)
+    d_price, d_chg, d_chart, d_history = process_data(dxy_raw, inverse=True)
     
     calendar_data = fetch_economic_calendar()
-    sentiment_data = fetch_sentiment()
+    
+    # MENGGUNAKAN SENTIMEN TEKNIKAL SEKARANG
+    sentiment_data = calculate_technical_sentiment(g_history)
 
     return {
         'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart},
@@ -270,7 +301,7 @@ def main_dashboard():
     if 'last_signal' not in st.session_state:
         st.session_state['last_signal'] = "NEUTRAL"
 
-    # --- SIDEBAR (HANYA INFO) ---
+    # --- SIDEBAR ---
     with st.sidebar:
         try: st.image("logo.png", width=150)
         except: st.write("### 👑 MafaFX")
@@ -278,27 +309,24 @@ def main_dashboard():
         st.write(f"User: **{st.session_state.get('username')}**")
         st.caption("Timeframe: H1 (1 Jam)") 
         st.caption("Status: Premium Active")
-        # Tombol Logout DIHAPUS dari sini
 
-    # --- HEADER (REFRESH & LOGOUT BARU) ---
+    # --- HEADER ---
     col_head, col_refresh = st.columns([4, 1])
     with col_head:
         st.title("MafaFX Premium (Fundamental Trading)")
         st.caption("⚡ Data H1 Real-Time - Waktu Indonesia Barat")
     with col_refresh:
-        # PENTING: Tombol Refresh dan Logout diletakkan berdekatan
         if st.button("🔄 Refresh Data"): 
             st.cache_data.clear()
             st.rerun()
         
-        # 🚪 LOGOUT DENGAN IKON BARU
         if st.button("🚪 Logout"): 
             st.session_state["password_correct"] = False
             st.query_params.clear() 
             st.rerun()
 
-    # --- DATA FETCHING & LOGIKA SINYAL ---
-    with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Data Fundamental...'):
+    # --- DATA & LOGIC ---
+    with st.spinner('Menghitung Tekanan Harian & Sinkronisasi Data...'):
         data = fetch_market_data()
         
         if data is None:
@@ -323,22 +351,22 @@ def main_dashboard():
             current_signal = "NEUTRAL"
 
         if current_signal == "SELL":
-            if sentiment['net_score'] < -0.2:
-                signal_text = "JUAL KUAT 🔴 (Didukung Sentimen Bearish)"
-            elif sentiment['net_score'] > 0.2:
-                 signal_text = "JUAL WASPADA 🔴 (Sentimen Pasar Bullish)"
+            if sentiment['net_score'] < -0.1:
+                signal_text = "JUAL KUAT 🔴 (Teknikal Bearish)"
+            elif sentiment['net_score'] > 0.1:
+                 signal_text = "JUAL WASPADA 🔴 (Teknikal Bullish)"
             else:
                 signal_text = "TEKANAN JUAL (SELL) 🔴"
             
         elif current_signal == "BUY":
-            if sentiment['net_score'] > 0.2:
-                signal_text = "BELI KUAT 🟢 (Didukung Sentimen Bullish)"
-            elif sentiment['net_score'] < -0.2:
-                signal_text = "BELI WASPADA 🟢 (Sentimen Pasar Bearish)"
+            if sentiment['net_score'] > 0.1:
+                signal_text = "BELI KUAT 🟢 (Teknikal Bullish)"
+            elif sentiment['net_score'] < -0.1:
+                signal_text = "BELI WASPADA 🟢 (Teknikal Bearish)"
             else:
                 signal_text = "PELUANG BELI (BUY) 🟢"
         
-        # 🟢 LOGIKA PENGIRIMAN NOTIFIKASI
+        # NOTIFIKASI
         if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
             message = (
                 f"🚨 *[MAFAFX ALERT]* 🚨\n"
@@ -346,7 +374,7 @@ def main_dashboard():
                 f"--------------------------------------\n"
                 f"Harga XAU/USD: ${gold['price']:,.2f}\n"
                 f"Perubahan H1: {gold['chg']:.2f}%\n"
-                f"Sentimen Bersih: {sentiment['net_score']:.2f}\n"
+                f"Sentimen RSI: {sentiment['bullish']:.1f}/100\n"
                 f"Timeframe: H1 (1 Jam)\n"
                 f"--------------------------------------\n"
                 f"⏳ Sinyal sebelumnya: {st.session_state['last_signal']}"
@@ -354,7 +382,7 @@ def main_dashboard():
             send_telegram_notification(message)
             st.session_state['last_signal'] = current_signal
 
-        # TAMPILAN DASHBOARD
+        # UI DASHBOARD
         st.markdown(f"""
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
             <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
@@ -366,16 +394,14 @@ def main_dashboard():
         col_sent1, col_sent2, col_sent3 = st.columns(3)
         calendar = data['CALENDAR']
 
-        if not sentiment['error']:
-            col_sent1.metric("Skor Sentimen Bersih (Net)", f"{sentiment['net_score']:.2f}", help="Sentimen Bullish - Bearish. Positif = Optimis Emas.")
-            col_sent2.metric("Bullish (%)", f"{sentiment['bullish']:.1f}%")
-            col_sent3.metric("Bearish (%)", f"{sentiment['bearish']:.1f}%")
-        else:
-            st.info("Gagal mengambil data Sentimen. Cek API Key Finnhub.")
+        # MENAMPILKAN SENTIMEN TEKNIKAL
+        col_sent1.metric("Skor Sentimen Teknikal (Net)", f"{sentiment['net_score']:.2f}", help="Berdasarkan RSI. Positif = Bullish, Negatif = Bearish.")
+        col_sent2.metric("Bullish Power (RSI)", f"{sentiment['bullish']:.1f}%")
+        col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}%")
             
         st.markdown("---")
         
-        # GRAFIK SPLIT VIEW
+        # GRAFIK
         st.markdown("### 🚦 Analisis Arus & Tekanan H1 (WIB)")
         
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
@@ -405,7 +431,7 @@ def main_dashboard():
         c1.error("**🟥 MERAH:** Dolar Kuat (Menekan Emas). Fokus pada posisi JUAL (SELL).")
         c2.success("**🟩 HIJAU:** Dolar Lemah (Melegakan Emas). Fokus pada posisi BELI (BUY).")
 
-        # KALENDER EKONOMI
+        # KALENDER
         st.markdown("---")
         st.markdown("### 🚨 Filter Fundamental: High Impact USD News (WIB)")
         
@@ -422,7 +448,7 @@ def main_dashboard():
         else:
             st.info("Tidak ada berita High Impact USD yang terdeteksi untuk 7 hari ke depan.")
 
-        # TOMBOL TES NOTIFIKASI (DI BAWAH)
+        # TOMBOL TES NOTIFIKASI
         st.markdown("---")
         st.markdown("<h3 style='text-align: center;'>Uji Koneksi Telegram</h3>", unsafe_allow_html=True)
         
@@ -431,10 +457,6 @@ def main_dashboard():
                 st.success("Notifikasi tes terkirim! Pesan dikirim ke SEMUA CHAT_IDS.")
              else:
                 st.error("Gagal mengirim notifikasi. Cek BOT_TOKEN dan CHAT_IDS di Secrets, dan pastikan Bot adalah Admin di semua Channel/Group.")
-
-# ==========================================
-# 5. PEMANGGIL FUNGSI UTAMA
-# ==========================================
 
 if __name__ == "__main__":
     main_dashboard()
