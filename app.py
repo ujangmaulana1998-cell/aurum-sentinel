@@ -18,7 +18,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS (UI PERBAIKAN) ---
+# --- CUSTOM CSS (UI MINIMALIS & ELEGAN) ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
@@ -34,10 +34,17 @@ st.markdown("""
         backdrop-filter: blur(5px); 
         color: white !important;
     }
+    
+    /* Container Outlook Box */
+    .outlook-box {
+        background-color: rgba(0, 0, 0, 0.3);
+        border-left: 5px solid #FFD700;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
 
-    /* --------------------------------------------------
-       GAYA TOMBOL HEADER (Refresh & Logout) - MINIMALIS
-       -------------------------------------------------- */
+    /* GAYA TOMBOL HEADER (Refresh & Logout) - Jajar & Minimalis */
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
         background-color: transparent !important;
         border: 1px solid rgba(255,255,255,0.3) !important;
@@ -52,12 +59,6 @@ st.markdown("""
         border-color: #FFD700 !important;
         color: #FFD700 !important;
         background-color: rgba(0,0,0,0.5) !important;
-    }
-
-    /* Tombol Tes Telegram (Bawah) tetap kuning agar mencolok */
-    div.stButton > button:first-child {
-         /* CSS ini akan menarget tombol umum jika tidak spesifik, 
-            tapi kita sudah menarget header secara spesifik di atas */
     }
     
     [data-testid="stSidebar"] [data-testid="stImage"] { text-align: center; display: block; margin-left: auto; margin-right: auto; width: 100%; }
@@ -142,21 +143,17 @@ def send_telegram_notification(message):
             'parse_mode': 'Markdown'
         }
         try:
-            response = requests.post(url, data=payload, timeout=5)
-            if response.status_code != 200:
-                success = False
-        except requests.exceptions.RequestException:
+            requests.post(url, data=payload, timeout=5)
+        except:
             success = False
-            
     return success
 
 
 # ==========================================
-# 3. ENGINE DATA (RSI TECHNICAL SENTIMENT)
+# 3. ENGINE DATA & ANALISIS
 # ==========================================
 
 def get_twelvedata(symbol, interval, api_key):
-    # Ambil 50 data untuk memastikan RSI cukup akurat
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50" 
     try:
         response = requests.get(url, timeout=10)
@@ -166,19 +163,15 @@ def get_twelvedata(symbol, interval, api_key):
     except: return None
 
 def calculate_rsi(prices, period=14):
-    """Menghitung RSI dari list harga."""
     try:
         prices = np.array(prices).astype(float)
         if len(prices) < period + 1: return 50.0
-        
-        # Balik urutan agar kronologis (Oldest -> Newest) jika perlu, 
-        # tapi Twelve Data biasanya Newest -> Oldest. Kita butuh urutan waktu.
-        # Asumsi input 'prices' sudah diurutkan (Oldest -> Newest) di process_data
         
         deltas = np.diff(prices)
         seed = deltas[:period+1]
         up = seed[seed >= 0].sum()/period
         down = -seed[seed < 0].sum()/period
+        if down == 0: return 100.0
         rs = up/down
         rsi = np.zeros_like(prices)
         rsi[:period] = 100. - 100./(1. + rs)
@@ -196,10 +189,8 @@ def calculate_rsi(prices, period=14):
             down = (down * (period - 1) + downval) / period
             rs = up/down
             rsi[i] = 100. - 100./(1. + rs)
-            
         return rsi[-1]
-    except:
-        return 50.0
+    except: return 50.0
 
 def process_data(values, inverse=False):
     if not values: return None, None, None, None
@@ -207,12 +198,10 @@ def process_data(values, inverse=False):
         df = pd.DataFrame(values)
         df['datetime'] = pd.to_datetime(df['datetime'])
         df['datetime'] = df['datetime'] + pd.Timedelta(hours=7)
-        df = df.set_index('datetime').sort_index() # Sort Oldest -> Newest
+        df = df.set_index('datetime').sort_index()
         df['close'] = df['close'].astype(float)
         
-        # Ambil array harga untuk RSI
         price_history = df['close'].values 
-        
         current = df['close'].iloc[-1]
         prev = df['close'].iloc[-2]
         
@@ -230,58 +219,74 @@ def process_data(values, inverse=False):
 
 @st.cache_data(ttl=3600) 
 def fetch_economic_calendar():
+    """Mengambil Kalender Ekonomi dari Finnhub dengan Error Handling Kuat."""
     try:
         api_key = st.secrets["finnhub"]["api_key"]
-    except KeyError:
-        return pd.DataFrame() 
-
-    today = datetime.now().strftime('%Y-%m-%d')
-    seven_days_later = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
-    
-    url = f"https://finnhub.io/api/v1/calendar/economic?from={today}&to={seven_days_later}&token={api_key}"
-    
-    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        seven_days_later = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+        url = f"https://finnhub.io/api/v1/calendar/economic?from={today}&to={seven_days_later}&token={api_key}"
+        
         response = requests.get(url, timeout=10)
         data = response.json().get("economicCalendar", [])
-        if not data: return pd.DataFrame()
+        
+        if not data: return pd.DataFrame() # Return empty DF if no data
+        
         df = pd.DataFrame(data)
-        df = df[ (df['country'] == 'US') & (df['impact'] == 'high') ].copy() 
+        # Filter High Impact US Only
+        df = df[ (df['country'] == 'US') & (df['impact'] == 'high') ].copy()
+        
         if df.empty: return pd.DataFrame()
+
         df['datetime_utc'] = pd.to_datetime(df['date'])
         df['WIB'] = df['datetime_utc'].apply(lambda x: x.tz_localize('UTC').tz_convert('Asia/Jakarta'))
+        
         df_display = df[['WIB', 'event', 'actual', 'forecast', 'previous']].rename(columns={
-            'WIB': 'Waktu (WIB)', 'event': 'Acara Berita', 'actual': 'Aktual',
-            'forecast': 'Konsensus', 'previous': 'Sebelum'
+            'WIB': 'Waktu (WIB)', 'event': 'Berita / Data', 'actual': 'Act',
+            'forecast': 'Fcst', 'previous': 'Prev'
         })
-        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)'].dt.strftime('%a, %d %b %H:%M')
+        df_display['Waktu (WIB)'] = df_display['Waktu (WIB)'].dt.strftime('%a, %H:%M')
         return df_display
-    except Exception as e:
-        return pd.DataFrame()
+    except:
+        return pd.DataFrame() # Fail safe
 
-# 🟢 LOGIKA SENTIMEN BARU (TEKNIKAL RSI)
 def calculate_technical_sentiment(prices):
-    """Menghitung Sentimen berdasarkan RSI."""
     try:
         rsi = calculate_rsi(prices)
-        
-        # Logika: RSI > 50 = Bullish sentiment, < 50 = Bearish
-        # Scale RSI (0-100) ke Net Score (-1.0 ke +1.0)
-        # 0 -> -1, 50 -> 0, 100 -> +1
         net_score = (rsi - 50) / 50 
-        
-        return {
-            'net_score': net_score,
-            'bullish': rsi,         # Kita pakai RSI sebagai % Bullish Power
-            'bearish': 100 - rsi,   # Sisa nya Bearish Power
-            'error': False
-        }
+        return {'net_score': net_score, 'bullish': rsi, 'bearish': 100 - rsi, 'error': False}
     except:
         return {'net_score': 0, 'bullish': 50, 'bearish': 50, 'error': True}
 
+# 🟢 FUNGSI BARU: GENERATE MARKET OUTLOOK (ANALISIS TEKS)
+def generate_market_outlook(dxy_change, gold_rsi):
+    """Menghasilkan teks analisis fundamental & teknikal sederhana."""
+    outlook_dxy = ""
+    outlook_gold = ""
+    
+    # Analisis Dolar
+    if dxy_change > 0.05:
+        outlook_dxy = "Dolar AS (DXY) sedang menguat signifikan. Ini memberikan tekanan bearish pada harga Emas."
+    elif dxy_change < -0.05:
+        outlook_dxy = "Dolar AS (DXY) terlihat melemah. Ini menjadi katalis positif bagi kenaikan Emas."
+    else:
+        outlook_dxy = "Dolar AS bergerak mendatar (sideways). Pasar menunggu pemicu berita selanjutnya."
+        
+    # Analisis Emas (RSI)
+    if gold_rsi > 70:
+        outlook_gold = "Secara teknikal, Emas sudah Overbought (Jenuh Beli). Hati-hati koreksi turun."
+    elif gold_rsi < 30:
+        outlook_gold = "Secara teknikal, Emas sudah Oversold (Jenuh Jual). Ada potensi pantulan naik."
+    elif gold_rsi > 55:
+        outlook_gold = "Momentum Emas cenderung Bullish, namun belum mencapai level ekstrem."
+    elif gold_rsi < 45:
+        outlook_gold = "Momentum Emas cenderung Bearish, waspada tekanan jual lanjutan."
+    else:
+        outlook_gold = "Emas berada di area Netral. Fokus pada Breakout level support/resistance terdekat."
+        
+    return f"{outlook_dxy} {outlook_gold}"
 
 @st.cache_data(ttl=3600) 
 def fetch_market_data():
-    """Mengambil data pasar."""
     try: api_key = st.secrets["twelvedata"]["api_key"]
     except: st.error("Twelve Data API Key Missing"); return None
 
@@ -294,12 +299,10 @@ def fetch_market_data():
     d_price, d_chg, d_chart, d_hist = process_data(dxy_raw, inverse=True)
     
     calendar_data = fetch_economic_calendar()
-    
-    # HITUNG SENTIMEN DARI RSI HARGA EMAS
     sentiment_data = calculate_technical_sentiment(g_hist)
 
     return {
-        'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart},
+        'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart, 'hist': g_hist},
         'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart},
         'CALENDAR': calendar_data,
         'SENTIMENT': sentiment_data
@@ -313,7 +316,6 @@ def main_dashboard():
     if 'last_signal' not in st.session_state:
         st.session_state['last_signal'] = "NEUTRAL"
 
-    # --- SIDEBAR ---
     with st.sidebar:
         try: st.image("logo.png", width=150)
         except: st.write("### 👑 MafaFX")
@@ -323,14 +325,11 @@ def main_dashboard():
         st.caption("Status: Premium Active")
 
     # --- HEADER MINIMALIS ---
-    col_head, col_act = st.columns([5, 2]) # Bagi area header
-    
+    col_head, col_act = st.columns([5, 2])
     with col_head:
         st.title("MafaFX Premium")
         st.caption("⚡ Data H1 Real-Time & RSI Sentiment - Waktu Indonesia Barat")
-        
     with col_act:
-        # Gunakan kolom lagi di dalam untuk mensejajarkan tombol
         c1, c2 = st.columns(2)
         with c1:
             if st.button("🔄 Refresh"): 
@@ -343,7 +342,7 @@ def main_dashboard():
                 st.rerun()
 
     # --- LOGIKA & TAMPILAN ---
-    with st.spinner('Menghitung Tekanan Harian & Sentimen RSI...'):
+    with st.spinner('Menganalisis Pasar Emas & Dolar...'):
         data = fetch_market_data()
         
         if data is None:
@@ -354,9 +353,9 @@ def main_dashboard():
         dxy = data['DXY']
         sentiment = data['SENTIMENT']
         
+        # Logika Sinyal Utama
         current_signal = "NEUTRAL"
         signal_color = "#FFFFFF"
-        signal_text = "NEUTRAL ⚪"
         
         if dxy['chg'] > 0.05: 
             current_signal = "SELL"
@@ -364,43 +363,26 @@ def main_dashboard():
         elif dxy['chg'] < -0.05: 
             current_signal = "BUY"
             signal_color = "#00CC96"
-        else:
-            current_signal = "NEUTRAL"
 
-        # Logika Sinyal + Sentimen RSI
         if current_signal == "SELL":
-            if sentiment['net_score'] < -0.2: # RSI di bawah 40
-                signal_text = "JUAL KUAT 🔴 (RSI Bearish)"
-            elif sentiment['net_score'] > 0.2:
-                 signal_text = "JUAL WASPADA 🔴 (RSI Bullish)"
-            else:
-                signal_text = "TEKANAN JUAL (SELL) 🔴"
-            
+            signal_text = "JUAL KUAT 🔴" if sentiment['net_score'] < -0.2 else "TEKANAN JUAL 🔴"
         elif current_signal == "BUY":
-            if sentiment['net_score'] > 0.2: # RSI di atas 60
-                signal_text = "BELI KUAT 🟢 (RSI Bullish)"
-            elif sentiment['net_score'] < -0.2:
-                signal_text = "BELI WASPADA 🟢 (RSI Bearish)"
-            else:
-                signal_text = "PELUANG BELI (BUY) 🟢"
-        
-        # NOTIFIKASI
+            signal_text = "BELI KUAT 🟢" if sentiment['net_score'] > 0.2 else "PELUANG BELI 🟢"
+        else:
+            signal_text = "NEUTRAL (WAIT & SEE) ⚪"
+
+        # Kirim Notif
         if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
             message = (
-                f"🚨 *[MAFAFX ALERT]* 🚨\n"
-                f"Sinyal Baru Terdeteksi: *{signal_text}*\n"
-                f"--------------------------------------\n"
-                f"Harga XAU/USD: ${gold['price']:,.2f}\n"
-                f"Perubahan H1: {gold['chg']:.2f}%\n"
-                f"Sentimen RSI: {sentiment['bullish']:.1f}\n"
-                f"Timeframe: H1 (1 Jam)\n"
-                f"--------------------------------------\n"
-                f"⏳ Sinyal sebelumnya: {st.session_state['last_signal']}"
+                f"🚨 *[MAFAFX ALERT]*\n"
+                f"Sinyal: *{signal_text}*\n"
+                f"Harga: ${gold['price']:,.2f}\n"
+                f"RSI: {sentiment['bullish']:.1f}"
             )
             send_telegram_notification(message)
             st.session_state['last_signal'] = current_signal
 
-        # DASHBOARD BANNER
+        # 1. VISUALISASI UTAMA
         st.markdown(f"""
         <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
             <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
@@ -409,85 +391,61 @@ def main_dashboard():
         </div>
         """, unsafe_allow_html=True)
         
-        col_sent1, col_sent2, col_sent3 = st.columns(3)
-        calendar = data['CALENDAR']
+        # 2. SEKSI OUTLOOK PASAR (BARU)
+        st.markdown("### 📢 Proyeksi & Analisis Pasar (H1)")
+        outlook_text = generate_market_outlook(dxy['chg'], sentiment['bullish'])
+        st.markdown(f"""
+        <div class="outlook-box">
+            <p style="font-size: 16px; margin: 0;"><b>Outlook Gold & Dollar:</b><br>{outlook_text}</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # METRIC SENTIMEN TEKNIKAL
-        col_sent1.metric("Skor Sentimen Teknikal", f"{sentiment['net_score']:.2f}", help="Positif = Tren RSI Naik. Negatif = Tren RSI Turun.")
-        col_sent2.metric("Bullish Power (RSI)", f"{sentiment['bullish']:.1f}")
+        col_sent1, col_sent2, col_sent3 = st.columns(3)
+        col_sent1.metric("Skor Teknikal RSI", f"{sentiment['net_score']:.2f}")
+        col_sent2.metric("Bullish Power", f"{sentiment['bullish']:.1f}")
         col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}")
             
         st.markdown("---")
         
-        # CHART
-        st.markdown("### 🚦 Analisis Arus & Tekanan H1 (WIB)")
-        
+        # 3. CHART HARGA VS TEKANAN
+        st.markdown("### 🚦 Korelasi Arus Dolar vs Harga Emas")
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
                             vertical_spacing=0.05, row_heights=[0.65, 0.35],
-                            subplot_titles=("1. Harga Emas (H1 Akibat)", "2. Tekanan Dolar (H1 Sebab)"))
+                            subplot_titles=("Harga Emas (XAU/USD)", "Tekanan Dolar AS (DXY)"))
 
-        fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Harga Emas', 
+        fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', 
                                  line=dict(color='#FFD700', width=3), fill='tozeroy'), row=1, col=1)
 
         dxy_vals = dxy['chart'].dropna()
         bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in dxy_vals]
         
-        fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='Tekanan Dolar', 
+        fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='DXY Pressure', 
                              marker_color=bar_colors), row=2, col=1)
 
-        fig.update_layout(template="plotly_dark", height=550, 
+        fig.update_layout(template="plotly_dark", height=500, 
                           paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                           margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
-        fig.update_yaxes(showgrid=False, zeroline=False)
-        fig.update_xaxes(showgrid=False)
-        fig.add_hline(y=0, line_dash="dot", row=2, col=1, line_color="white", opacity=0.5)
-
         st.plotly_chart(fig, use_container_width=True)
         
-        c1, c2 = st.columns(2)
-        c1.error("**🟥 MERAH:** Dolar Kuat (Menekan Emas). Fokus pada posisi JUAL (SELL).")
-        c2.success("**🟩 HIJAU:** Dolar Lemah (Melegakan Emas). Fokus pada posisi BELI (BUY).")
-
-        # KALENDER
+        # 4. BERITA HIGH IMPACT
         st.markdown("---")
-        st.markdown("### 🚨 Filter Fundamental: High Impact USD News (WIB)")
+        c_news, c_tips = st.columns([2, 1])
         
-        if not calendar.empty:
-            st.dataframe(
-                calendar, 
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Acara Berita": st.column_config.Column(width="medium"),
-                }
-            )
-        else:
-            st.info("Tidak ada berita High Impact USD yang terdeteksi untuk 7 hari ke depan.")
-
-        # TOMBOL TES (Style Biasa/Kuning)
-        st.markdown("---")
-        st.markdown("<h3 style='text-align: center;'>Uji Koneksi Telegram</h3>", unsafe_allow_html=True)
+        with c_news:
+            st.markdown("### 📰 Kalender Ekonomi (High Impact)")
+            calendar = data['CALENDAR']
+            if not calendar.empty:
+                st.dataframe(calendar, use_container_width=True, hide_index=True)
+            else:
+                st.info("Tidak ada berita High Impact USD dalam 7 hari ke depan, atau Pasar sedang Libur.")
         
-        # Gunakan CSS khusus untuk membuat tombol ini tetap seperti tombol biasa (Kuning)
-        st.markdown("""
-        <style>
-        div.stButton > button:last-child {
-            width: 50%;
-            margin-left: 25%;
-            margin-right: 25%;
-            margin-top: 15px;
-            background: linear-gradient(to right, #FFD700, #E5C100) !important;
-            color: black !important;
-            border: none !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        if st.button("🧪 Tes Kirim Notifikasi Telegram Sekarang"):
-             if send_telegram_notification("✅ *[MAFAFX TEST]* Notifikasi Telegram berhasil terkirim!"):
-                st.success("Notifikasi tes terkirim! Pesan dikirim ke SEMUA CHAT_IDS.")
-             else:
-                st.error("Gagal mengirim notifikasi. Cek BOT_TOKEN dan CHAT_IDS.")
+        with c_tips:
+            st.markdown("### 💡 Tips Trading")
+            st.info("""
+            * **DXY Naik** = Emas Turun (Sell)
+            * **DXY Turun** = Emas Naik (Buy)
+            * Hindari trading 15 menit sebelum berita High Impact rilis.
+            """)
 
 if __name__ == "__main__":
     main_dashboard()
