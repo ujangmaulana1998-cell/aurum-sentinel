@@ -414,7 +414,7 @@ def main_dashboard():
                 st.markdown("### 💡 Tips Trading")
                 st.info("Gunakan AI Assistant di Tab sebelah untuk konsultasi strategi!")
 
-    # === TAB 2: AI ASSISTANT (DEBUG VERSION) ===
+    # === TAB 2: AI ASSISTANT (CHATBOT GEMINI) ===
     with tab2:
         st.markdown("### 🤖 MafaFX AI Assistant")
         st.caption("Tanyakan apa saja tentang Pasar, Strategi, atau Psikologi Trading.")
@@ -434,21 +434,23 @@ def main_dashboard():
             st.chat_message("user").markdown(prompt)
             st.session_state.messages.append({"role": "user", "content": prompt})
 
-            # Proses AI dengan ERROR HANDLING LENGKAP
+            # Proses AI
             model = configure_gemini()
-            
             if model:
                 try:
-                    with st.spinner('Sedang berpikir...'):
-                        response = model.generate_content(prompt)
-                        ai_reply = response.text
+                    # Kirim pesan ke Gemini
+                    # Kita bisa menambahkan konteks pasar saat ini ke prompt
+                    response = model.generate_content(prompt)
+                    ai_reply = response.text
                 except Exception as e:
-                    # 🔴 INI BAGIAN PENTING: MENAMPILKAN ERROR ASLI
-                    ai_reply = f"⚠️ **Terjadi Error:** `{str(e)}`\n\nCoba cek kembali API Key atau Library 'google-generativeai' di requirements.txt."
+                    ai_reply = "Maaf, koneksi ke otak AI sedang gangguan. Coba lagi nanti."
             else:
-                ai_reply = "⚠️ API Key Gemini belum terbaca di Secrets! Pastikan format di secrets.toml sudah benar: `[gemini]` lalu `api_key = '...'`"
+                ai_reply = "API Key Gemini belum diatur di Secrets!"
 
             # Tampilkan Balasan AI
             with st.chat_message("assistant"):
                 st.markdown(ai_reply)
             st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+
+if __name__ == "__main__":
+    main_dashboard()
