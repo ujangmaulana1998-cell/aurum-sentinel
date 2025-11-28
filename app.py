@@ -5,8 +5,16 @@ from plotly.subplots import make_subplots
 import requests
 import hashlib
 import numpy as np
-import google.generativeai as genai # 🟢 LIBRARY BARU UNTUK GEMINI
 from datetime import datetime, timedelta
+
+# ==========================================
+# 0. CEK LIBRARY GEMINI (Agar tidak Blank)
+# ==========================================
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 # ==========================================
 # 1. KONFIGURASI SISTEM DAN CSS
@@ -177,20 +185,16 @@ def send_telegram_notification(message):
 
 # 🟢 KONFIGURASI GEMINI AI CHATBOT
 def configure_gemini():
+    if not GEMINI_AVAILABLE:
+        return "MISSING_LIB"
+    
     try:
         api_key = st.secrets["gemini"]["api_key"]
         genai.configure(api_key=api_key)
-        # Model Instruksi Khusus agar AI berperilaku seperti Asisten Trading
-        sys_instruction = """
-        Kamu adalah MafaFX AI, asisten trading profesional yang cerdas, tegas, dan berfokus pada analisis fundamental serta teknikal.
-        Kamu ahli dalam pasar Emas (XAUUSD) dan Dolar (DXY).
-        Gaya bicaramu profesional namun mudah dipahami oleh trader Indonesia.
-        Selalu ingatkan tentang manajemen risiko jika user bertanya tentang entry yang berisiko.
-        """
         model = genai.GenerativeModel('gemini-pro') 
         return model
     except Exception as e:
-        return None
+        return f"ERROR: {str(e)}"
 
 # ==========================================
 # 3. ENGINE DATA & ANALISIS
@@ -344,7 +348,7 @@ def main_dashboard():
     # --- TAB NAVIGASI UTAMA ---
     tab1, tab2 = st.tabs(["📊 Dashboard Sinyal", "🤖 MafaFX AI Assistant"])
 
-    # === TAB 1: DASHBOARD SINYAL (KODE LAMA) ===
+    # === TAB 1: DASHBOARD SINYAL ===
     with tab1:
         with st.spinner('Menganalisis Pasar...'):
             data = fetch_market_data()
@@ -414,42 +418,52 @@ def main_dashboard():
                 st.markdown("### 💡 Tips Trading")
                 st.info("Gunakan AI Assistant di Tab sebelah untuk konsultasi strategi!")
 
-   # === TAB 2: AI ASSISTANT (DEBUG VERSION) ===
+    # === TAB 2: AI ASSISTANT (DIAGNOSTIC VERSION) ===
     with tab2:
         st.markdown("### 🤖 MafaFX AI Assistant")
         st.caption("Tanyakan apa saja tentang Pasar, Strategi, atau Psikologi Trading.")
         
-        # Inisialisasi Chat History
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+        # Cek apakah Library Terinstall
+        if not GEMINI_AVAILABLE:
+            st.error("❌ Library `google-generativeai` belum terinstall di Server.")
+            st.info("SOLUSI: Buka file `requirements.txt` dan tambahkan `google-generativeai` di baris paling bawah, lalu Save.")
+        else:
+            if "messages" not in st.session_state: st.session_state.messages = []
 
-        # Tampilkan Pesan Sebelumnya
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]): st.markdown(message["content"])
 
-        # Input Chat
-        if prompt := st.chat_input("Contoh: 'Apa pengaruh NFP terhadap Emas?'"):
-            # Tampilkan pesan user
-            st.chat_message("user").markdown(prompt)
-            st.session_state.messages.append({"role": "user", "content": prompt})
+            if prompt := st.chat_input("Contoh: 'Analisa Emas sekarang bagaimana?'"):
+                st.chat_message("user").markdown(prompt)
+                st.session_state.messages.append({"role": "user", "content": prompt})
 
-            # Proses AI dengan ERROR HANDLING LENGKAP
-            model = configure_gemini()
-            
-            if model:
-                try:
-                    with st.spinner('Sedang berpikir...'):
-                        response = model.generate_content(prompt)
-                        ai_reply = response.text
-                except Exception as e:
-                    # 🔴 INI BAGIAN PENTING: MENAMPILKAN ERROR ASLI
-                    ai_reply = f"⚠️ **Terjadi Error:** `{str(e)}`\n\nCoba cek kembali API Key atau Library 'google-generativeai' di requirements.txt."
-            else:
-                ai_reply = "⚠️ API Key Gemini belum terbaca di Secrets! Pastikan format di secrets.toml sudah benar: `[gemini]` lalu `api_key = '...'`"
+                # Konfigurasi Model
+                result_model = configure_gemini()
+                
+                # Jika kembaliannya String Error
+                if isinstance(result_model, str):
+                    if "MISSING_LIB" in result_model:
+                        ai_reply = "⚠️ Error: Library Python hilang. Cek requirements.txt."
+                    else:
+                        ai_reply = f"⚠️ **Gagal Konfigurasi API:**\n`{result_model}`\n\nCek apakah API Key di secrets.toml sudah benar dan tidak ada spasi tambahan."
+                else:
+                    try:
+                        with st.spinner('Sedang berpikir...'):
+                            response = result_model.generate_content(prompt)
+                            ai_reply = response.text
+                    except Exception as e:
+                        # INI PESAN ERROR YANG KITA CARI
+                        error_msg = str(e)
+                        if "400" in error_msg:
+                            ai_reply = f"⚠️ **Error 400 (Bad Request):**\nKemungkinan API Key Anda tidak valid atau Project di Google Cloud belum diaktifkan billing-nya (untuk versi berbayar), tapi biasanya gratis. Coba buat API Key baru."
+                        elif "403" in error_msg:
+                             ai_reply = f"⚠️ **Error 403 (Permission Denied):**\nLokasi server Streamlit mungkin diblokir Google, atau API Key salah. \nError Asli: `{error_msg}`"
+                        else:
+                            ai_reply = f"⚠️ **Error Tak Terduga:**\n`{error_msg}`"
 
-            # Tampilkan Balasan AI
-            with st.chat_message("assistant"):
-                st.markdown(ai_reply)
-            st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+                with st.chat_message("assistant"):
+                    st.markdown(ai_reply)
+                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
 
+if __name__ == "__main__":
+    main_dashboard()
