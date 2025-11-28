@@ -8,15 +8,6 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # ==========================================
-# 0. CEK LIBRARY GROQ (OTAK BARU)
-# ==========================================
-try:
-    from groq import Groq
-    GROQ_AVAILABLE = True
-except ImportError:
-    GROQ_AVAILABLE = False
-
-# ==========================================
 # 1. KONFIGURASI SISTEM DAN CSS
 # ==========================================
 
@@ -34,6 +25,7 @@ st.markdown("""
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label, li { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
+    /* Metric Cards */
     div[data-testid="stMetric"] { 
         background-color: rgba(0, 0, 0, 0.4) !important; 
         border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -43,24 +35,7 @@ st.markdown("""
         color: white !important;
     }
     
-    .stTabs [data-baseweb="tab-list"] { gap: 10px; }
-    .stTabs [data-baseweb="tab"] {
-        height: 50px;
-        white-space: pre-wrap;
-        background-color: rgba(0,0,0,0.3);
-        border-radius: 10px 10px 0 0;
-        gap: 1px;
-        padding-top: 10px;
-        padding-bottom: 10px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #FFD700 !important;
-        color: black !important;
-        font-weight: bold;
-    }
-
-    .stChatMessage { background-color: rgba(0,0,0,0.3); border-radius: 10px; }
-
+    /* Outlook Box */
     .outlook-box {
         background-color: rgba(0, 0, 0, 0.3);
         border-left: 5px solid #FFD700;
@@ -71,6 +46,7 @@ st.markdown("""
     }
     .outlook-title { font-weight: bold; color: #FFD700; font-size: 1.1em; margin-bottom: 5px; }
 
+    /* Key Levels Box */
     .sr-box {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 10px;
@@ -79,6 +55,7 @@ st.markdown("""
         border: 1px dashed rgba(255,255,255,0.3);
     }
 
+    /* Buttons Header */
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
         background-color: transparent !important;
         border: 1px solid rgba(255,255,255,0.3) !important;
@@ -177,34 +154,6 @@ def send_telegram_notification(message):
     return success
 
 
-# 🟢 KONFIGURASI GROQ AI CHATBOT (OTAK BARU)
-def get_groq_response(prompt_text):
-    if not GROQ_AVAILABLE:
-        return "⚠️ Error: Library `groq` belum terinstall. Cek requirements.txt."
-    
-    try:
-        api_key = st.secrets["groq"]["api_key"]
-        client = Groq(api_key=api_key)
-        
-        chat_completion = client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Anda adalah MafaFX AI, asisten trading profesional yang cerdas untuk pasar XAUUSD (Gold). Berikan jawaban singkat, padat, dan strategis dalam Bahasa Indonesia. Fokus pada teknikal dan fundamental."
-                },
-                {
-                    "role": "user",
-                    "content": prompt_text,
-                }
-            ],
-            model="llama3-8b-8192", # Model Llama 3 yang sangat cepat dan gratis
-            temperature=0.7,
-            max_tokens=1024,
-        )
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        return f"⚠️ **Groq Error:** {str(e)}"
-
 # ==========================================
 # 3. ENGINE DATA & ANALISIS
 # ==========================================
@@ -264,6 +213,7 @@ def process_data(values, inverse=False):
     except: return None, None, None, None
 
 def calculate_sr_levels(raw_values):
+    """Hitung Support Resistance 24 Jam"""
     try:
         if not raw_values: return None
         df = pd.DataFrame(raw_values)
@@ -276,6 +226,7 @@ def calculate_sr_levels(raw_values):
 
 @st.cache_data(ttl=3600) 
 def fetch_forex_factory_calendar():
+    """Kalender Forex Factory CSV"""
     try:
         csv_url = "https://nfs.faireconomy.media/ff_calendar_thisweek.csv"
         df = pd.read_csv(csv_url)
@@ -299,6 +250,7 @@ def calculate_technical_sentiment(prices):
     except: return {'net_score': 0, 'bullish': 50, 'bearish': 50, 'error': True}
 
 def generate_market_outlook(dxy_change, gold_rsi):
+    """Outlook berbasis Logika Sederhana (Bukan AI Chatbot)"""
     if dxy_change > 0.05: dxy_text = "Dolar AS menguat. Menekan Emas."
     elif dxy_change < -0.05: dxy_text = "Dolar AS melemah. Mendukung Emas."
     else: dxy_text = "Dolar AS stabil (Sideways)."
@@ -314,14 +266,18 @@ def generate_market_outlook(dxy_change, gold_rsi):
 def fetch_market_data():
     try: api_key = st.secrets["twelvedata"]["api_key"]
     except: st.error("Twelve Data API Key Missing"); return None
+
     gold_raw = get_twelvedata("XAU/USD", "1h", api_key) 
     dxy_raw = get_twelvedata("EUR/USD", "1h", api_key)
+    
     if not gold_raw or not dxy_raw: st.warning("Twelve Data tidak ditemukan."); return None
+    
     g_price, g_chg, g_chart, g_hist = process_data(gold_raw)
     d_price, d_chg, d_chart, d_hist = process_data(dxy_raw, inverse=True)
     sr_levels = calculate_sr_levels(gold_raw)
     calendar_data = fetch_forex_factory_calendar()
     sentiment_data = calculate_technical_sentiment(g_hist)
+
     return {
         'GOLD': {'price': g_price, 'chg': g_chg, 'chart': g_chart, 'hist': g_hist, 'sr': sr_levels},
         'DXY': {'price': d_price, 'chg': d_chg, 'chart': d_chart},
@@ -329,7 +285,7 @@ def fetch_market_data():
     }
 
 # ==========================================
-# 4. DASHBOARD UTAMA (MULTI-TAB)
+# 4. DASHBOARD UTAMA
 # ==========================================
 
 def main_dashboard():
@@ -354,102 +310,83 @@ def main_dashboard():
         with c2:
             if st.button("🚪 Logout"): st.session_state["password_correct"] = False; st.query_params.clear(); st.rerun()
 
-    # --- TAB NAVIGASI UTAMA ---
-    tab1, tab2 = st.tabs(["📊 Dashboard Sinyal", "🤖 MafaFX AI Assistant"])
-
-    # === TAB 1: DASHBOARD SINYAL ===
-    with tab1:
-        with st.spinner('Menganalisis Pasar...'):
-            data = fetch_market_data()
-            if data is None: st.warning("Data API Error"); return
-            gold = data['GOLD']; dxy = data['DXY']; sentiment = data['SENTIMENT']; sr = gold['sr']
-            
-            # Logic Sinyal
-            current_signal = "NEUTRAL"; signal_color = "#FFFFFF"
-            if dxy['chg'] > 0.05: current_signal = "SELL"; signal_color = "#FF4B4B"
-            elif dxy['chg'] < -0.05: current_signal = "BUY"; signal_color = "#00CC96"
-
-            if current_signal == "SELL": signal_text = "JUAL KUAT 🔴" if sentiment['net_score'] < -0.2 else "TEKANAN JUAL 🔴"
-            elif current_signal == "BUY": signal_text = "BELI KUAT 🟢" if sentiment['net_score'] > 0.2 else "PELUANG BELI 🟢"
-            else: signal_text = "NEUTRAL (WAIT & SEE) ⚪"
-
-            # Notifikasi Logic
-            if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
-                message = (f"🚨 *[MAFAFX ALERT]*\nSinyal: *{signal_text}*\nHarga: ${gold['price']:,.2f}\nS1: {sr['S1']:.2f} | R1: {sr['R1']:.2f}")
-                send_telegram_notification(message)
-                st.session_state['last_signal'] = current_signal
-
-            # Tampilan Dashboard
-            st.markdown(f"""
-            <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
-                <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
-                <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['price']:,.2f}</h3>
-                <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 1 Jam: {gold['chg']:.2f}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            c_sr, c_outlook = st.columns([1, 2])
-            with c_sr:
-                st.markdown("### 🎯 Key Levels (24H)")
-                st.markdown(f"""
-                <div class="sr-box" style="border-color: #FF4B4B;"><small style="color: #FF4B4B;">RESISTANCE</small><br><b style="font-size: 1.2em;">${sr['R1']:,.2f}</b></div>
-                <div style="margin: 5px 0;"></div>
-                <div class="sr-box" style="border-color: #FFD700;"><small style="color: #FFD700;">PIVOT</small><br><b style="font-size: 1.2em;">${sr['P']:,.2f}</b></div>
-                <div style="margin: 5px 0;"></div>
-                <div class="sr-box" style="border-color: #00CC96;"><small style="color: #00CC96;">SUPPORT</small><br><b style="font-size: 1.2em;">${sr['S1']:,.2f}</b></div>
-                """, unsafe_allow_html=True)
-            with c_outlook:
-                st.markdown("### 📢 AI Market Outlook")
-                outlook_text = generate_market_outlook(dxy['chg'], sentiment['bullish'])
-                st.markdown(f"""<div class="outlook-box"><p style="margin: 0; font-size: 1.1em; line-height: 1.6;">{outlook_text}</p><br><small>Teknikal RSI: <b>{sentiment['bullish']:.1f}/100</b></small></div>""", unsafe_allow_html=True)
-
-            col_sent1, col_sent2, col_sent3 = st.columns(3)
-            col_sent1.metric("Skor Teknikal RSI", f"{sentiment['net_score']:.2f}")
-            col_sent2.metric("Bullish Power", f"{sentiment['bullish']:.1f}")
-            col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}")
-            st.markdown("---")
-            st.markdown("### 🚦 Korelasi Arus Dolar vs Harga Emas")
-            fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.65, 0.35], subplot_titles=("Harga Emas", "Tekanan DXY"))
-            fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', line=dict(color='#FFD700', width=3), fill='tozeroy'), row=1, col=1)
-            dxy_vals = dxy['chart'].dropna()
-            bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in dxy_vals]
-            fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='DXY Pressure', marker_color=bar_colors), row=2, col=1)
-            fig.update_layout(template="plotly_dark", height=500, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
-            st.plotly_chart(fig, use_container_width=True)
-            st.markdown("---")
-            c_news, c_tips = st.columns([2, 1])
-            with c_news:
-                st.markdown("### 📰 Kalender USD (High Impact)")
-                calendar = data['CALENDAR']
-                if not calendar.empty: st.dataframe(calendar, use_container_width=True, hide_index=True)
-                else: st.info("Tidak ada berita High Impact USD minggu ini.")
-            with c_tips:
-                st.markdown("### 💡 Tips Trading")
-                st.info("Gunakan AI Assistant di Tab sebelah untuk konsultasi strategi!")
-
-    # === TAB 2: MAFAFX AI ASSISTANT (GROQ VERSION) ===
-    with tab2:
-        st.markdown("### 🤖 MafaFX AI Assistant (Powered by Llama 3)")
-        st.caption("Tanyakan apa saja tentang Pasar, Strategi, atau Psikologi Trading. (Respon Cepat)")
+    # --- MAIN LOGIC ---
+    with st.spinner('Menganalisis Pasar...'):
+        data = fetch_market_data()
         
-        if not GROQ_AVAILABLE:
-            st.error("❌ Library `groq` belum terinstall. Buka `requirements.txt` dan ganti `google-generativeai` dengan `groq`.")
-        else:
-            if "messages" not in st.session_state: st.session_state.messages = []
+        if data is None: st.warning("Menunggu Data API..."); return
 
-            for message in st.session_state.messages:
-                with st.chat_message(message["role"]): st.markdown(message["content"])
+        gold = data['GOLD']; dxy = data['DXY']; sentiment = data['SENTIMENT']; sr = gold['sr']
+        
+        current_signal = "NEUTRAL"; signal_color = "#FFFFFF"
+        if dxy['chg'] > 0.05: current_signal = "SELL"; signal_color = "#FF4B4B"
+        elif dxy['chg'] < -0.05: current_signal = "BUY"; signal_color = "#00CC96"
 
-            if prompt := st.chat_input("Contoh: 'Analisa Emas saat ini?'"):
-                st.chat_message("user").markdown(prompt)
-                st.session_state.messages.append({"role": "user", "content": prompt})
+        if current_signal == "SELL": signal_text = "JUAL KUAT 🔴" if sentiment['net_score'] < -0.2 else "TEKANAN JUAL 🔴"
+        elif current_signal == "BUY": signal_text = "BELI KUAT 🟢" if sentiment['net_score'] > 0.2 else "PELUANG BELI 🟢"
+        else: signal_text = "NEUTRAL (WAIT & SEE) ⚪"
 
-                with st.spinner('Sedang menganalisis...'):
-                    ai_reply = get_groq_response(prompt)
+        # Notifikasi Telegram
+        if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
+            message = (f"🚨 *[MAFAFX ALERT]*\nSinyal: *{signal_text}*\nHarga: ${gold['price']:,.2f}\nS1: {sr['S1']:.2f} | R1: {sr['R1']:.2f}")
+            send_telegram_notification(message)
+            st.session_state['last_signal'] = current_signal
 
-                with st.chat_message("assistant"):
-                    st.markdown(ai_reply)
-                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
+        # 1. VISUALISASI UTAMA
+        st.markdown(f"""
+        <div style="background: rgba(0,0,0,0.3); padding:20px; border-radius:15px; text-align:center; border: 1px solid rgba(255,255,255,0.2); margin-bottom: 20px;">
+            <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
+            <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['price']:,.2f}</h3>
+            <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 1 Jam: {gold['chg']:.2f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # 2. KEY LEVELS & OUTLOOK
+        c_sr, c_outlook = st.columns([1, 2])
+        with c_sr:
+            st.markdown("### 🎯 Key Levels (24H)")
+            st.markdown(f"""
+            <div class="sr-box" style="border-color: #FF4B4B;"><small style="color: #FF4B4B;">RESISTANCE</small><br><b style="font-size: 1.2em;">${sr['R1']:,.2f}</b></div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #FFD700;"><small style="color: #FFD700;">PIVOT</small><br><b style="font-size: 1.2em;">${sr['P']:,.2f}</b></div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #00CC96;"><small style="color: #00CC96;">SUPPORT</small><br><b style="font-size: 1.2em;">${sr['S1']:,.2f}</b></div>
+            """, unsafe_allow_html=True)
+        with c_outlook:
+            st.markdown("### 📢 AI Market Outlook")
+            outlook_text = generate_market_outlook(dxy['chg'], sentiment['bullish'])
+            st.markdown(f"""<div class="outlook-box"><p style="margin: 0; font-size: 1.1em; line-height: 1.6;">{outlook_text}</p><br><small>Teknikal RSI: <b>{sentiment['bullish']:.1f}/100</b></small></div>""", unsafe_allow_html=True)
+
+        col_sent1, col_sent2, col_sent3 = st.columns(3)
+        col_sent1.metric("Skor Teknikal RSI", f"{sentiment['net_score']:.2f}")
+        col_sent2.metric("Bullish Power", f"{sentiment['bullish']:.1f}")
+        col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}")
+        st.markdown("---")
+
+        # 3. CHART HARGA VS TEKANAN
+        st.markdown("### 🚦 Korelasi Arus Dolar vs Harga Emas")
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.65, 0.35], subplot_titles=("Harga Emas", "Tekanan DXY"))
+        fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', line=dict(color='#FFD700', width=3), fill='tozeroy'), row=1, col=1)
+        dxy_vals = dxy['chart'].dropna()
+        bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in dxy_vals]
+        fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='DXY Pressure', marker_color=bar_colors), row=2, col=1)
+        fig.update_layout(template="plotly_dark", height=500, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("---")
+
+        # 4. KALENDER FOREX FACTORY
+        c_news, c_tips = st.columns([2, 1])
+        with c_news:
+            st.markdown("### 📰 Kalender USD (High Impact)")
+            calendar = data['CALENDAR']
+            if not calendar.empty: st.dataframe(calendar, use_container_width=True, hide_index=True)
+            else: st.info("Tidak ada berita High Impact USD minggu ini.")
+        with c_tips:
+            st.markdown("### 💡 Tips Trading")
+            st.info("""
+            * **S1/R1:** Area entry terbaik saat searah dengan Sinyal Utama.
+            * **Berita:** Hindari trading 15 menit sebelum berita High Impact.
+            """)
 
 if __name__ == "__main__":
     main_dashboard()
