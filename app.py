@@ -8,13 +8,13 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # ==========================================
-# 0. CEK LIBRARY GEMINI (Agar tidak Blank)
+# 0. CEK LIBRARY GROQ (OTAK BARU)
 # ==========================================
 try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
+    from groq import Groq
+    GROQ_AVAILABLE = True
 except ImportError:
-    GEMINI_AVAILABLE = False
+    GROQ_AVAILABLE = False
 
 # ==========================================
 # 1. KONFIGURASI SISTEM DAN CSS
@@ -34,7 +34,6 @@ st.markdown("""
     .stApp { background-image: linear-gradient(to right bottom, #d926a9, #bc20b6, #9b1fc0, #7623c8, #4728cd); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label, li { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* Metric Cards */
     div[data-testid="stMetric"] { 
         background-color: rgba(0, 0, 0, 0.4) !important; 
         border: 1px solid rgba(255, 255, 255, 0.2); 
@@ -44,7 +43,6 @@ st.markdown("""
         color: white !important;
     }
     
-    /* Tab Styling */
     .stTabs [data-baseweb="tab-list"] { gap: 10px; }
     .stTabs [data-baseweb="tab"] {
         height: 50px;
@@ -61,10 +59,8 @@ st.markdown("""
         font-weight: bold;
     }
 
-    /* Chat Styling */
     .stChatMessage { background-color: rgba(0,0,0,0.3); border-radius: 10px; }
 
-    /* Outlook Box */
     .outlook-box {
         background-color: rgba(0, 0, 0, 0.3);
         border-left: 5px solid #FFD700;
@@ -75,7 +71,6 @@ st.markdown("""
     }
     .outlook-title { font-weight: bold; color: #FFD700; font-size: 1.1em; margin-bottom: 5px; }
 
-    /* Key Levels Box */
     .sr-box {
         background: rgba(255, 255, 255, 0.1);
         border-radius: 10px;
@@ -84,7 +79,6 @@ st.markdown("""
         border: 1px dashed rgba(255,255,255,0.3);
     }
 
-    /* Buttons */
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
         background-color: transparent !important;
         border: 1px solid rgba(255,255,255,0.3) !important;
@@ -183,52 +177,33 @@ def send_telegram_notification(message):
     return success
 
 
-# 🟢 KONFIGURASI GEMINI AI (VERSI STABIL & GRATIS)
-def configure_gemini():
-    if not GEMINI_AVAILABLE:
-        return "MISSING_LIB"
+# 🟢 KONFIGURASI GROQ AI CHATBOT (OTAK BARU)
+def get_groq_response(prompt_text):
+    if not GROQ_AVAILABLE:
+        return "⚠️ Error: Library `groq` belum terinstall. Cek requirements.txt."
     
     try:
-        api_key = st.secrets["gemini"]["api_key"]
-        genai.configure(api_key=api_key)
+        api_key = st.secrets["groq"]["api_key"]
+        client = Groq(api_key=api_key)
         
-        # 1. Daftar Model Prioritas (Yang Pasti Gratis & Stabil)
-        # Kita cek satu per satu, jangan pakai yang experimental (-exp)
-        priority_models = [
-            'gemini-1.5-flash', # Pilihan 1: Paling Cepat & Hemat
-            'gemini-1.5-pro',   # Pilihan 2: Lebih Pintar
-            'gemini-pro'        # Pilihan 3: Versi Lama (Cadangan)
-        ]
-        
-        # 2. Cek Model mana yang tersedia di akun Anda
-        available_models = [m.name for m in genai.list_models()]
-        
-        selected_model_name = ""
-        
-        for p_model in priority_models:
-            # Cek apakah 'models/nama_model' ada di daftar akun
-            full_name = f"models/{p_model}"
-            if full_name in available_models:
-                selected_model_name = p_model
-                break
-        
-        # 3. Jika tidak ada yang cocok, ambil apa saja asal BUKAN experimental
-        if not selected_model_name:
-            for m in available_models:
-                if 'generateContent' in genai.get_model(m).supported_generation_methods:
-                    if '-exp' not in m: # HINDARI MODEL EXPERIMENTAL
-                        selected_model_name = m.replace('models/', '')
-                        break
-
-        if not selected_model_name:
-             return "NO_MODEL: Tidak ada model stabil yang ditemukan."
-
-        # 4. Aktifkan Model
-        model = genai.GenerativeModel(selected_model_name)
-        return model
-
+        chat_completion = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Anda adalah MafaFX AI, asisten trading profesional yang cerdas untuk pasar XAUUSD (Gold). Berikan jawaban singkat, padat, dan strategis dalam Bahasa Indonesia. Fokus pada teknikal dan fundamental."
+                },
+                {
+                    "role": "user",
+                    "content": prompt_text,
+                }
+            ],
+            model="llama3-8b-8192", # Model Llama 3 yang sangat cepat dan gratis
+            temperature=0.7,
+            max_tokens=1024,
+        )
+        return chat_completion.choices[0].message.content
     except Exception as e:
-        return f"ERROR: {str(e)}"
+        return f"⚠️ **Groq Error:** {str(e)}"
 
 # ==========================================
 # 3. ENGINE DATA & ANALISIS
@@ -452,48 +427,25 @@ def main_dashboard():
                 st.markdown("### 💡 Tips Trading")
                 st.info("Gunakan AI Assistant di Tab sebelah untuk konsultasi strategi!")
 
-    # === TAB 2: AI ASSISTANT (DIAGNOSTIC VERSION) ===
+    # === TAB 2: MAFAFX AI ASSISTANT (GROQ VERSION) ===
     with tab2:
-        st.markdown("### 🤖 MafaFX AI Assistant")
-        st.caption("Tanyakan apa saja tentang Pasar, Strategi, atau Psikologi Trading.")
+        st.markdown("### 🤖 MafaFX AI Assistant (Powered by Llama 3)")
+        st.caption("Tanyakan apa saja tentang Pasar, Strategi, atau Psikologi Trading. (Respon Cepat)")
         
-        # Cek apakah Library Terinstall
-        if not GEMINI_AVAILABLE:
-            st.error("❌ Library `google-generativeai` belum terinstall di Server.")
-            st.info("SOLUSI: Buka file `requirements.txt` dan tambahkan `google-generativeai` di baris paling bawah, lalu Save.")
+        if not GROQ_AVAILABLE:
+            st.error("❌ Library `groq` belum terinstall. Buka `requirements.txt` dan ganti `google-generativeai` dengan `groq`.")
         else:
             if "messages" not in st.session_state: st.session_state.messages = []
 
             for message in st.session_state.messages:
                 with st.chat_message(message["role"]): st.markdown(message["content"])
 
-            if prompt := st.chat_input("Contoh: 'Analisa Emas sekarang bagaimana?'"):
+            if prompt := st.chat_input("Contoh: 'Analisa Emas saat ini?'"):
                 st.chat_message("user").markdown(prompt)
                 st.session_state.messages.append({"role": "user", "content": prompt})
 
-                # Konfigurasi Model
-                result_model = configure_gemini()
-                
-                # Jika kembaliannya String Error
-                if isinstance(result_model, str):
-                    if "MISSING_LIB" in result_model:
-                        ai_reply = "⚠️ Error: Library Python hilang. Cek requirements.txt."
-                    else:
-                        ai_reply = f"⚠️ **Gagal Konfigurasi API:**\n`{result_model}`\n\nCek apakah API Key di secrets.toml sudah benar dan tidak ada spasi tambahan."
-                else:
-                    try:
-                        with st.spinner('Sedang berpikir...'):
-                            response = result_model.generate_content(prompt)
-                            ai_reply = response.text
-                    except Exception as e:
-                        # INI PESAN ERROR YANG KITA CARI
-                        error_msg = str(e)
-                        if "400" in error_msg:
-                            ai_reply = f"⚠️ **Error 400 (Bad Request):**\nKemungkinan API Key Anda tidak valid atau Project di Google Cloud belum diaktifkan billing-nya (untuk versi berbayar), tapi biasanya gratis. Coba buat API Key baru."
-                        elif "403" in error_msg:
-                             ai_reply = f"⚠️ **Error 403 (Permission Denied):**\nLokasi server Streamlit mungkin diblokir Google, atau API Key salah. \nError Asli: `{error_msg}`"
-                        else:
-                            ai_reply = f"⚠️ **Error Tak Terduga:**\n`{error_msg}`"
+                with st.spinner('Sedang menganalisis...'):
+                    ai_reply = get_groq_response(prompt)
 
                 with st.chat_message("assistant"):
                     st.markdown(ai_reply)
@@ -501,6 +453,3 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
-
-
-
