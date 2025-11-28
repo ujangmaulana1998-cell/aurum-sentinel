@@ -183,7 +183,7 @@ def send_telegram_notification(message):
     return success
 
 
-# 🟢 KONFIGURASI GEMINI AI CHATBOT
+# 🟢 KONFIGURASI GEMINI AI CHATBOT (DIPERBARUI)
 def configure_gemini():
     if not GEMINI_AVAILABLE:
         return "MISSING_LIB"
@@ -191,7 +191,9 @@ def configure_gemini():
     try:
         api_key = st.secrets["gemini"]["api_key"]
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-pro') 
+        
+        # KITA GANTI 'gemini-pro' MENJADI 'gemini-1.5-flash'
+        model = genai.GenerativeModel('gemini-1.5-flash') 
         return model
     except Exception as e:
         return f"ERROR: {str(e)}"
@@ -467,3 +469,4 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
+
