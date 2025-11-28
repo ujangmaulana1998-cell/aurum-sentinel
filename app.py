@@ -183,7 +183,7 @@ def send_telegram_notification(message):
     return success
 
 
-# 🟢 KONFIGURASI GEMINI AI (AUTO-DETECT MODEL)
+# 🟢 KONFIGURASI GEMINI AI (VERSI STABIL & GRATIS)
 def configure_gemini():
     if not GEMINI_AVAILABLE:
         return "MISSING_LIB"
@@ -192,29 +192,38 @@ def configure_gemini():
         api_key = st.secrets["gemini"]["api_key"]
         genai.configure(api_key=api_key)
         
-        # 1. Cari model yang tersedia di akun ini
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
+        # 1. Daftar Model Prioritas (Yang Pasti Gratis & Stabil)
+        # Kita cek satu per satu, jangan pakai yang experimental (-exp)
+        priority_models = [
+            'gemini-1.5-flash', # Pilihan 1: Paling Cepat & Hemat
+            'gemini-1.5-pro',   # Pilihan 2: Lebih Pintar
+            'gemini-pro'        # Pilihan 3: Versi Lama (Cadangan)
+        ]
         
-        # 2. Pilih model terbaik secara otomatis
+        # 2. Cek Model mana yang tersedia di akun Anda
+        available_models = [m.name for m in genai.list_models()]
+        
         selected_model_name = ""
         
-        # Prioritas: Flash (Cepat) -> Pro 1.5 (Cerdas) -> Pro 1.0 (Stabil) -> Apapun yang ada
-        if 'models/gemini-1.5-flash' in available_models:
-            selected_model_name = 'gemini-1.5-flash'
-        elif 'models/gemini-1.5-pro' in available_models:
-            selected_model_name = 'gemini-1.5-pro'
-        elif 'models/gemini-pro' in available_models:
-            selected_model_name = 'gemini-pro'
-        elif len(available_models) > 0:
-            # Ambil saja yang pertama jika pilihan di atas tidak ada
-            selected_model_name = available_models[0].replace('models/', '')
-        else:
-            return "NO_MODELS: Tidak ada model yang aktif di API Key ini."
+        for p_model in priority_models:
+            # Cek apakah 'models/nama_model' ada di daftar akun
+            full_name = f"models/{p_model}"
+            if full_name in available_models:
+                selected_model_name = p_model
+                break
+        
+        # 3. Jika tidak ada yang cocok, ambil apa saja asal BUKAN experimental
+        if not selected_model_name:
+            for m in available_models:
+                if 'generateContent' in genai.get_model(m).supported_generation_methods:
+                    if '-exp' not in m: # HINDARI MODEL EXPERIMENTAL
+                        selected_model_name = m.replace('models/', '')
+                        break
 
-        # 3. Konfigurasi Model Terpilih
+        if not selected_model_name:
+             return "NO_MODEL: Tidak ada model stabil yang ditemukan."
+
+        # 4. Aktifkan Model
         model = genai.GenerativeModel(selected_model_name)
         return model
 
@@ -492,5 +501,6 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
+
 
 
