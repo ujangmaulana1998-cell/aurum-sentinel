@@ -183,7 +183,7 @@ def send_telegram_notification(message):
     return success
 
 
-# 🟢 KONFIGURASI GEMINI AI CHATBOT (DIPERBARUI)
+# 🟢 KONFIGURASI GEMINI AI (AUTO-DETECT MODEL)
 def configure_gemini():
     if not GEMINI_AVAILABLE:
         return "MISSING_LIB"
@@ -192,9 +192,32 @@ def configure_gemini():
         api_key = st.secrets["gemini"]["api_key"]
         genai.configure(api_key=api_key)
         
-        # KITA GANTI 'gemini-pro' MENJADI 'gemini-1.5-flash'
-        model = genai.GenerativeModel('gemini-1.5-flash') 
+        # 1. Cari model yang tersedia di akun ini
+        available_models = []
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                available_models.append(m.name)
+        
+        # 2. Pilih model terbaik secara otomatis
+        selected_model_name = ""
+        
+        # Prioritas: Flash (Cepat) -> Pro 1.5 (Cerdas) -> Pro 1.0 (Stabil) -> Apapun yang ada
+        if 'models/gemini-1.5-flash' in available_models:
+            selected_model_name = 'gemini-1.5-flash'
+        elif 'models/gemini-1.5-pro' in available_models:
+            selected_model_name = 'gemini-1.5-pro'
+        elif 'models/gemini-pro' in available_models:
+            selected_model_name = 'gemini-pro'
+        elif len(available_models) > 0:
+            # Ambil saja yang pertama jika pilihan di atas tidak ada
+            selected_model_name = available_models[0].replace('models/', '')
+        else:
+            return "NO_MODELS: Tidak ada model yang aktif di API Key ini."
+
+        # 3. Konfigurasi Model Terpilih
+        model = genai.GenerativeModel(selected_model_name)
         return model
+
     except Exception as e:
         return f"ERROR: {str(e)}"
 
@@ -469,4 +492,5 @@ def main_dashboard():
 
 if __name__ == "__main__":
     main_dashboard()
+
 
