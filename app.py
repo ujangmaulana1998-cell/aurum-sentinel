@@ -5,59 +5,92 @@ from plotly.subplots import make_subplots
 import requests
 import hashlib
 import numpy as np
-import yfinance as yf  # 🟢 LIBRARY BARU UNTUK US10Y
-from datetime import datetime, time, timedelta
-import pytz
+import yfinance as yf
+from datetime import datetime, timedelta
 
 # ==========================================
-# 1. KONFIGURASI SISTEM & CSS
+# 1. KONFIGURASI SISTEM DAN CSS
 # ==========================================
 
 st.set_page_config(
-    page_title="MafaFX Pro Fundamental",
+    page_title="MafaFX Pro Hybrid",
     page_icon="👑",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- CUSTOM CSS (PREMIUM LOOK) ---
+# --- CUSTOM CSS (GABUNGAN STYLE LAMA & BARU) ---
 st.markdown("""
 <style>
     #MainMenu {visibility: hidden;} footer {visibility: hidden;} header {visibility: hidden;}
     .stApp { background-image: linear-gradient(to right bottom, #0f0c29, #302b63, #24243e); background-attachment: fixed; }
     h1, h2, h3, h4, h5, h6, p, span, div, label, li { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* MATRIX BOX STYLING */
+    /* MATRIX CARD (FITUR BARU) */
     .matrix-card {
         background-color: rgba(255, 255, 255, 0.05);
         border: 1px solid rgba(255,255,255,0.1);
         border-radius: 10px;
-        padding: 15px;
+        padding: 10px;
         text-align: center;
-        margin-bottom: 10px;
+        margin-bottom: 15px;
     }
-    .matrix-title { font-size: 0.9em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
-    .matrix-val { font-size: 1.4em; font-weight: bold; margin-top: 5px; }
-    
-    /* BIAS CARD */
-    .bias-card {
-        background: linear-gradient(45deg, #1e3c72, #2a5298);
-        border-radius: 15px;
-        padding: 20px;
-        text-align: center;
-        border: 1px solid rgba(255,255,255,0.2);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    .matrix-title { font-size: 0.8em; color: #aaa; text-transform: uppercase; letter-spacing: 1px; }
+    .matrix-val { font-size: 1.2em; font-weight: bold; margin-top: 5px; }
+
+    /* SIGNAL BOX (FITUR LAMA YANG DIPERTAHANKAN) */
+    .signal-box {
+        background: rgba(0,0,0,0.3); 
+        padding: 20px; 
+        border-radius: 15px; 
+        text-align: center; 
+        border: 1px solid rgba(255,255,255,0.2); 
+        margin-bottom: 20px;
     }
 
     /* Metric Cards */
-    div[data-testid="stMetric"] { background-color: rgba(0, 0, 0, 0.4) !important; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); }
+    div[data-testid="stMetric"] { 
+        background-color: rgba(0, 0, 0, 0.4) !important; 
+        border: 1px solid rgba(255, 255, 255, 0.2); 
+        padding: 15px; 
+        border-radius: 15px; 
+        backdrop-filter: blur(5px); 
+    }
     
+    /* Outlook Box */
+    .outlook-box {
+        background-color: rgba(0, 0, 0, 0.3);
+        border-left: 5px solid #FFD700;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        color: white;
+    }
+
+    /* Key Levels Box */
+    .sr-box {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 10px;
+        padding: 10px;
+        text-align: center;
+        border: 1px dashed rgba(255,255,255,0.3);
+    }
+
     /* Buttons */
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button {
-        background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; border-radius: 20px;
+        background-color: transparent !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        color: white !important;
+        font-weight: normal !important;
+        padding: 5px 15px !important;
+        font-size: 14px !important;
+        border-radius: 20px !important;
+        transition: all 0.3s ease;
     }
     div[data-testid="stHorizontalBlock"] > div:nth-child(2) button:hover {
-        border-color: #FFD700; color: #FFD700;
+        border-color: #FFD700 !important;
+        color: #FFD700 !important;
+        background-color: rgba(0,0,0,0.5) !important;
     }
     
     [data-testid="stSidebar"] [data-testid="stImage"] { margin-left: auto; margin-right: auto; }
@@ -84,10 +117,10 @@ def check_password():
     if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
     if st.session_state["password_correct"]: return True
     
-    # Login Form
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
+        try: st.image("logo.png", width=200)
+        except: st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
         with st.form("credentials"):
             st.text_input("Username", key="username_input")
             st.text_input("Password", type="password", key="password_input")
@@ -103,10 +136,21 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. ENGINE DATA (5-POINT CHECK)
+# 3. ENGINE DATA (GABUNGAN LAMA & BARU)
 # ==========================================
 
-# 1 & 2. DXY & XAU (Twelve Data)
+def send_telegram_notification(message):
+    try:
+        bot_token = st.secrets["telegram"]["BOT_TOKEN"]
+        chat_ids_str = st.secrets["telegram"]["CHAT_IDS"]
+        chat_ids_list = [id.strip() for id in chat_ids_str.split(',')]
+        for chat_id in chat_ids_list:
+            url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {'chat_id': chat_id, 'text': message, 'parse_mode': 'Markdown'}
+            requests.post(url, data=payload, timeout=5)
+        return True
+    except: return False
+
 def get_twelvedata(symbol, interval, api_key):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50"
     try:
@@ -115,21 +159,17 @@ def get_twelvedata(symbol, interval, api_key):
         return r.get("values", [])
     except: return None
 
-# 3. US10Y (Yahoo Finance)
+# 🟢 BARU: YIELD US10Y
 def get_us10y_data():
-    """Mengambil Data Yield US 10 Year via YFinance"""
     try:
-        # ^TNX adalah ticker untuk CBOE Interest Rate 10 Year T Note
         ticker = yf.Ticker("^TNX")
-        # Ambil data 5 hari terakhir interval 1 jam (atau 1 hari)
         df = ticker.history(period="5d", interval="1h")
-        if df.empty: return None
-        
-        current = df['Close'].iloc[-1]
+        if df.empty: return {'price': 0, 'chg': 0}
+        curr = df['Close'].iloc[-1]
         prev = df['Close'].iloc[-2]
-        change_pct = ((current - prev) / prev) * 100
-        return {'price': current, 'chg': change_pct}
-    except: return None
+        chg = ((curr - prev) / prev) * 100
+        return {'price': curr, 'chg': chg}
+    except: return {'price': 0, 'chg': 0}
 
 def calculate_rsi(prices, period=14):
     try:
@@ -154,24 +194,26 @@ def calculate_rsi(prices, period=14):
         return rsi[-1]
     except: return 50.0
 
-def process_twelve_data(values, inverse=False):
+def process_data(values, inverse=False):
     if not values: return None, None, None, None
     try:
         df = pd.DataFrame(values)
-        df['datetime'] = pd.to_datetime(df['datetime']) + pd.Timedelta(hours=7) # WIB
+        df['datetime'] = pd.to_datetime(df['datetime']) + pd.Timedelta(hours=7)
         df = df.set_index('datetime').sort_index()
         df['close'] = df['close'].astype(float)
         hist = df['close'].values
         curr = df['close'].iloc[-1]
         prev = df['close'].iloc[-2]
-        
-        if inverse: chg = -1 * ((curr - prev) / prev) * 100
-        else: chg = ((curr - prev) / prev) * 100
-        
-        return curr, chg, df['close'], hist
+        if inverse: 
+            chg = -1 * ((curr - prev) / prev) * 100
+            chart = df['close'].pct_change() * -1
+        else: 
+            chg = ((curr - prev) / prev) * 100
+            chart = df['close']
+        return curr, chg, chart, hist
     except: return None, None, None, None
 
-def calculate_sr(raw_vals):
+def calculate_sr_levels(raw_vals):
     try:
         if not raw_vals: return None
         df = pd.DataFrame(raw_vals); df['high']=df['high'].astype(float); df['low']=df['low'].astype(float); df['close']=df['close'].astype(float)
@@ -179,207 +221,218 @@ def calculate_sr(raw_vals):
         return {'R1': w['high'].max(), 'S1': w['low'].min(), 'P': w['close'].mean()}
     except: return {'R1':0,'S1':0,'P':0}
 
-# 4. News Check (Forex Factory)
 @st.cache_data(ttl=3600)
-def fetch_news_today():
+def fetch_news():
     try:
         df = pd.read_csv("https://nfs.faireconomy.media/ff_calendar_thisweek.csv")
         df = df[df['Country'] == 'USD'].copy()
         df = df[df['Impact'].isin(['High', 'Medium'])].copy()
         df['DateTime'] = pd.to_datetime(df['Date'] + ' ' + df['Time'], format='%m-%d-%Y %I:%M%p', errors='coerce')
         df['WIB'] = df['DateTime'] + pd.Timedelta(hours=11)
-        
-        # Filter HANYA HARI INI
         today = datetime.now().date()
-        df_today = df[df['WIB'].dt.date == today].sort_values('WIB')
+        df_today = df[df['WIB'].dt.date == today].sort_values('WIB') # Filter Hari Ini Saja untuk Matrix
         
-        # Format
-        df_display = df_today[['WIB', 'Title', 'Impact']].rename(columns={'WIB':'Jam (WIB)', 'Title':'Event'})
-        df_display['Jam (WIB)'] = df_display['Jam (WIB)'].dt.strftime('%H:%M')
-        return df_display
-    except: return pd.DataFrame()
+        return df_today, df # Return (Hari Ini, Semua Minggu Ini)
+    except: return pd.DataFrame(), pd.DataFrame()
 
-# 5. BIAS DETERMINATION (LOGIC INTI)
+# 🟢 BARU: LOGIKA BIAS (SCORING)
 def determine_bias(dxy_chg, us10y_chg, rsi):
     score = 0
-    reasons = []
+    if dxy_chg > 0.05: score -= 2
+    elif dxy_chg < -0.05: score += 2
     
-    # Faktor DXY
-    if dxy_chg > 0.05: score -= 2; reasons.append("DXY Bullish")
-    elif dxy_chg < -0.05: score += 2; reasons.append("DXY Bearish")
+    if us10y_chg > 0.5: score -= 2
+    elif us10y_chg < -0.5: score += 2
     
-    # Faktor US10Y (Yields Naik = Gold Turun)
-    if us10y_chg > 0.5: score -= 2; reasons.append("Yields Meroket")
-    elif us10y_chg < -0.5: score += 2; reasons.append("Yields Anjlok")
+    if rsi > 60: score += 1
+    elif rsi < 40: score -= 1
     
-    # Faktor RSI
-    if rsi > 60: score += 1; reasons.append("Teknikal Bullish")
-    elif rsi < 40: score -= 1; reasons.append("Teknikal Bearish")
-    
-    # Keputusan
-    if score >= 3: return "STRONG BUY", "#00CC96", reasons
-    elif score <= -3: return "STRONG SELL", "#FF4B4B", reasons
-    elif score > 0: return "WEAK BUY", "#b2d8d8", reasons
-    elif score < 0: return "WEAK SELL", "#ffcccc", reasons
-    else: return "NEUTRAL", "#FFFFFF", ["Market Sideways"]
-
-def get_market_session():
-    now_hour = (datetime.now() + timedelta(hours=7)).hour # WIB
-    # Estimasi Kasar
-    if 5 <= now_hour < 14: return "🌏 SESI ASIA (Sideways/Range)"
-    elif 14 <= now_hour < 19: return "🇪🇺 SESI LONDON (Volatile)"
-    elif 19 <= now_hour < 24: return "🇺🇸 SESI NEW YORK (Trend/Reversal)"
-    else: return "😴 MARKET TUTUP/SEPI"
+    if score >= 3: return "STRONG BUY", "#00CC96"
+    elif score <= -3: return "STRONG SELL", "#FF4B4B"
+    elif score > 0: return "WEAK BUY", "#b2d8d8"
+    elif score < 0: return "WEAK SELL", "#ffcccc"
+    else: return "NEUTRAL", "#FFFFFF"
 
 @st.cache_data(ttl=300)
-def fetch_full_data():
+def fetch_market_data():
     try: api = st.secrets["twelvedata"]["api_key"]
     except: return None
     
     g_raw = get_twelvedata("XAU/USD", "1h", api)
-    d_raw = get_twelvedata("EUR/USD", "1h", api) # Inverse DXY proxy
+    d_raw = get_twelvedata("EUR/USD", "1h", api)
+    if not g_raw or not d_raw: return None
     
-    g_price, g_chg, g_chart, g_hist = process_twelve_data(g_raw)
-    d_price, d_chg, d_chart, d_hist = process_twelve_data(d_raw, inverse=True)
+    gp, gc, gchart, ghist = process_data(g_raw)
+    dp, dc, dchart, dhist = process_data(d_raw, inverse=True)
+    sr = calculate_sr_levels(g_raw)
+    rsi = calculate_rsi(ghist)
+    sentiment = {'net_score': (rsi-50)/50, 'bullish': rsi, 'bearish': 100-rsi}
+    
+    # NEW DATA
     us10y = get_us10y_data()
-    sr = calculate_sr(g_raw)
-    rsi = calculate_rsi(g_hist)
-    news = fetch_news_today()
-    
-    # Fallback jika US10Y error (kadang yfinance limit)
-    if us10y is None: us10y = {'price': 4.0, 'chg': 0.0}
-    
-    bias, color, reasons = determine_bias(d_chg, us10y['chg'], rsi)
+    news_today, news_week = fetch_news()
+    bias_text, bias_col = determine_bias(dc, us10y['chg'], rsi)
     
     return {
-        'gold': {'p': g_price, 'c': g_chg, 'chart': g_chart, 'rsi': rsi, 'sr': sr},
-        'dxy': {'p': d_price, 'c': d_chg, 'chart': d_chart},
-        'us10y': us10y,
-        'news': news,
-        'bias': {'text': bias, 'color': color, 'reasons': reasons}
+        'GOLD': {'p': gp, 'c': gc, 'chart': gchart, 'sr': sr},
+        'DXY': {'p': dp, 'c': dc, 'chart': dchart},
+        'US10Y': us10y,
+        'SENTIMENT': sentiment,
+        'NEWS': {'today': news_today, 'week': news_week},
+        'BIAS': {'text': bias_text, 'color': bias_col}
     }
 
 # ==========================================
-# 4. DASHBOARD UI
+# 4. DASHBOARD UTAMA
 # ==========================================
 
 def main():
+    if 'last_signal' not in st.session_state: st.session_state['last_signal'] = "NEUTRAL"
+
     with st.sidebar:
         try: st.image("logo.png", width=120)
         except: st.write("## 👑 MafaFX")
-        st.write(f"👤 **{st.session_state.get('username')}**")
+        st.write(f"User: **{st.session_state.get('username')}**")
         st.markdown("---")
-        st.info(get_market_session())
         if st.button("🚪 Logout"):
             st.session_state["password_correct"] = False
             st.query_params.clear(); st.rerun()
 
-    st.title("🛡️ MafaFX Fundamental Matrix")
-    st.caption("5-Point Check System: DXY • US10Y • Sentiment • News • Bias")
-    
-    if st.button("🔄 SCAN MARKET SEKARANG"): st.cache_data.clear(); st.rerun()
-    
-    with st.spinner("Menghubungkan ke Exchange & Obligasi US..."):
-        data = fetch_full_data()
-        if not data: st.error("Data Feed Error. Cek API Key."); return
-        
-        gold = data['gold']; dxy = data['dxy']; us10y = data['us10y']; bias = data['bias']
-        
-        # === BAGIAN 1: MATRIX 5 POIN ===
-        st.markdown("### 🔍 Pra-Sesi Checklist (5 Poin)")
-        
-        c1, c2, c3, c4, c5 = st.columns(5)
-        
-        # 1. DXY
-        dxy_color = "#FF4B4B" if dxy['c'] > 0 else "#00CC96" # Merah jika naik (bad for gold)
-        with c1:
-            st.markdown(f"""
-            <div class="matrix-card">
-                <div class="matrix-title">1. ARAH USD (DXY)</div>
-                <div class="matrix-val" style="color:{dxy_color}">{dxy['c']:+.2f}%</div>
-                <small>{'Menguat' if dxy['c']>0 else 'Melemah'}</small>
-            </div>""", unsafe_allow_html=True)
-            
-        # 2. US10Y
-        us_color = "#FF4B4B" if us10y['chg'] > 0 else "#00CC96" # Merah jika naik
-        with c2:
-            st.markdown(f"""
-            <div class="matrix-card">
-                <div class="matrix-title">2. US10Y YIELD</div>
-                <div class="matrix-val" style="color:{us_color}">{us10y['chg']:+.2f}%</div>
-                <small>{us10y['price']:.3f}% Rate</small>
-            </div>""", unsafe_allow_html=True)
+    col_head, col_act = st.columns([5, 2])
+    with col_head:
+        st.title("MafaFX Premium")
+        st.caption("⚡ Hybrid System: Fundamental Matrix + H1 Execution")
+    with col_act:
+        c1, c2 = st.columns(2)
+        with c1: 
+            if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
 
-        # 3. SENTIMEN RSI
-        rsi_val = gold['rsi']
-        rsi_col = "#00CC96" if rsi > 50 else "#FF4B4B"
-        with c3:
-            st.markdown(f"""
-            <div class="matrix-card">
-                <div class="matrix-title">3. TEKNIKAL (RSI)</div>
-                <div class="matrix-val" style="color:{rsi_col}">{rsi_val:.1f}</div>
-                <small>{'Bullish' if rsi>50 else 'Bearish'}</small>
-            </div>""", unsafe_allow_html=True)
-            
-        # 4. NEWS HARI INI
-        news_count = len(data['news'])
-        news_col = "#FF4B4B" if news_count > 0 else "#FFFFFF"
-        with c4:
-            st.markdown(f"""
-            <div class="matrix-card">
-                <div class="matrix-title">4. JADWAL NEWS</div>
-                <div class="matrix-val" style="color:{news_col}">{news_count}</div>
-                <small>High Impact Today</small>
-            </div>""", unsafe_allow_html=True)
+    with st.spinner("Menggabungkan Data Fundamental & Teknikal..."):
+        data = fetch_market_data()
+        if not data: st.warning("Menunggu data API..."); return
 
-        # 5. FINAL BIAS
-        with c5:
-            st.markdown(f"""
-            <div class="matrix-card" style="border-color:{bias['color']}; background:rgba(255,255,255,0.08);">
-                <div class="matrix-title">5. BIAS XAUUSD</div>
-                <div class="matrix-val" style="color:{bias['color']}; font-size:1.1em;">{bias['text']}</div>
-                <small>{', '.join(bias['reasons'][:1])}</small>
-            </div>""", unsafe_allow_html=True)
-
-        # === BAGIAN 2: DATA VISUALIZATION ===
+        gold = data['GOLD']; dxy = data['DXY']; us10y = data['US10Y']
+        sentiment = data['SENTIMENT']; bias = data['BIAS']
+        sr = gold['sr']
         
-        # TAMPILAN JADWAL NEWS (Jika Ada)
-        if news_count > 0:
-            with st.expander("📅 Rincian Jadwal News Hari Ini (WIB)", expanded=True):
-                st.dataframe(data['news'], use_container_width=True, hide_index=True)
-        else:
-            st.caption("✅ Tidak ada News High Impact USD terjadwal hari ini. Market Technical.")
-            
+        # === [BAGIAN 1: FUNDAMENTAL MATRIX BARU] ===
+        st.markdown("### 🛡️ Fundamental Matrix (5-Point Check)")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        
+        # DXY
+        d_col = "#FF4B4B" if dxy['c'] > 0 else "#00CC96"
+        with m1: st.markdown(f"""<div class="matrix-card"><div class="matrix-title">1. USD (DXY)</div><div class="matrix-val" style="color:{d_col}">{dxy['c']:+.2f}%</div></div>""", unsafe_allow_html=True)
+        
+        # US10Y
+        u_col = "#FF4B4B" if us10y['chg'] > 0 else "#00CC96"
+        with m2: st.markdown(f"""<div class="matrix-card"><div class="matrix-title">2. US10Y YIELD</div><div class="matrix-val" style="color:{u_col}">{us10y['chg']:+.2f}%</div></div>""", unsafe_allow_html=True)
+        
+        # RSI
+        r_val = sentiment['bullish']
+        r_col = "#00CC96" if r_val > 50 else "#FF4B4B"
+        with m3: st.markdown(f"""<div class="matrix-card"><div class="matrix-title">3. SENTIMENT</div><div class="matrix-val" style="color:{r_col}">{r_val:.0f}/100</div></div>""", unsafe_allow_html=True)
+        
+        # NEWS TODAY
+        n_count = len(data['NEWS']['today'])
+        n_col = "#FF4B4B" if n_count > 0 else "#FFFFFF"
+        with m4: st.markdown(f"""<div class="matrix-card"><div class="matrix-title">4. NEWS TODAY</div><div class="matrix-val" style="color:{n_col}">{n_count}</div></div>""", unsafe_allow_html=True)
+        
+        # BIAS
+        with m5: st.markdown(f"""<div class="matrix-card" style="border-color:{bias['color']};"><div class="matrix-title">5. BIAS ARAH</div><div class="matrix-val" style="color:{bias['color']}; font-size:1em;">{bias['text']}</div></div>""", unsafe_allow_html=True)
+        
         st.markdown("---")
+
+        # === [BAGIAN 2: DASHBOARD EKSEKUSI (FITUR LAMA DIPERTAHANKAN)] ===
         
-        # KEY LEVELS & CHART
-        col_main, col_side = st.columns([3, 1])
+        # Logic Sinyal Utama (H1)
+        current_signal = "NEUTRAL"; signal_color = "#FFFFFF"
+        if dxy['c'] > 0.05: current_signal = "SELL"; signal_color = "#FF4B4B"
+        elif dxy['c'] < -0.05: current_signal = "BUY"; signal_color = "#00CC96"
+
+        if current_signal == "SELL": signal_text = "JUAL KUAT 🔴" if sentiment['net_score'] < -0.2 else "TEKANAN JUAL 🔴"
+        elif current_signal == "BUY": signal_text = "BELI KUAT 🟢" if sentiment['net_score'] > 0.2 else "PELUANG BELI 🟢"
+        else: signal_text = "NEUTRAL (WAIT & SEE) ⚪"
+
+        # Notifikasi (Tetap pakai Sinyal Eksekusi, bukan Bias)
+        if current_signal != st.session_state['last_signal'] and current_signal != "NEUTRAL":
+            message = (f"🚨 *[MAFAFX ALERT]*\nSinyal: *{signal_text}*\nHarga: ${gold['p']:,.2f}\nBias: {bias['text']}")
+            send_telegram_notification(message)
+            st.session_state['last_signal'] = current_signal
+
+        # VISUALISASI KOTAK BESAR (LAMA)
+        st.markdown(f"""
+        <div class="signal-box">
+            <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
+            <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['p']:,.2f}</h3>
+            <p style="margin:0; opacity:0.7; font-size: 0.9em;">Perubahan 1 Jam: {gold['c']:.2f}%</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with col_main:
-            st.subheader(f"Grafik Korelasi (Gold vs DXY)")
-            fig = make_subplots(specs=[[{"secondary_y": True}]])
-            fig.add_trace(go.Scatter(y=gold['chart'], name="Gold Price", line=dict(color='#FFD700', width=3)), secondary_y=False)
-            fig.add_trace(go.Bar(x=dxy['chart'].index, y=dxy['chart'], name="DXY Pressure", marker_color='rgba(255,255,255,0.2)'), secondary_y=True)
-            fig.update_layout(template="plotly_dark", height=400, margin=dict(l=0,r=0,t=20,b=0), paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-            st.plotly_chart(fig, use_container_width=True)
-            
-        with col_side:
-            st.subheader("🎯 Key Levels")
-            sr = gold['sr']
+        c_sr, c_outlook = st.columns([1, 2])
+        
+        # KOLOM SUPPORT RESISTANCE (LAMA)
+        with c_sr:
+            st.markdown("### 🎯 Key Levels (24H)")
             st.markdown(f"""
-            <div style="background:rgba(255,0,0,0.2); padding:10px; border-radius:5px; margin-bottom:5px; text-align:center;">
-                <small>RESISTANCE</small><br><b>${sr['R1']:,.2f}</b>
-            </div>
-            <div style="background:rgba(255,215,0,0.2); padding:10px; border-radius:5px; margin-bottom:5px; text-align:center;">
-                <small>PIVOT</small><br><b>${sr['P']:,.2f}</b>
-            </div>
-            <div style="background:rgba(0,255,0,0.2); padding:10px; border-radius:5px; margin-bottom:5px; text-align:center;">
-                <small>SUPPORT</small><br><b>${sr['S1']:,.2f}</b>
+            <div class="sr-box" style="border-color: #FF4B4B;"><small style="color: #FF4B4B;">RESISTANCE</small><br><b style="font-size: 1.2em;">${sr['R1']:,.2f}</b></div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #FFD700;"><small style="color: #FFD700;">PIVOT</small><br><b style="font-size: 1.2em;">${sr['P']:,.2f}</b></div>
+            <div style="margin: 5px 0;"></div>
+            <div class="sr-box" style="border-color: #00CC96;"><small style="color: #00CC96;">SUPPORT</small><br><b style="font-size: 1.2em;">${sr['S1']:,.2f}</b></div>
+            """, unsafe_allow_html=True)
+            
+        # KOLOM OUTLOOK (LAMA + UPDATE BIAS)
+        with c_outlook:
+            st.markdown("### 📢 Market Outlook")
+            # Generate outlook text
+            outlook_text = f"Fundamental Bias: **{bias['text']}**. "
+            if dxy['c'] > 0.05: outlook_text += "Dolar menguat menekan Emas. "
+            elif dxy['c'] < -0.05: outlook_text += "Dolar melemah mendukung Emas. "
+            
+            if sentiment['bullish'] > 70: outlook_text += "Hati-hati Overbought."
+            elif sentiment['bullish'] < 30: outlook_text += "Hati-hati Oversold."
+            
+            st.markdown(f"""
+            <div class="outlook-box">
+                <p style="margin: 0; font-size: 1.1em; line-height: 1.6;">{outlook_text}</p>
+                <br>
+                <small>Teknikal RSI: <b>{sentiment['bullish']:.1f}/100</b> | Yield US10Y: <b>{us10y['chg']:+.2f}%</b></small>
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown("---")
-            st.metric("Harga Emas Live", f"${gold['p']:,.2f}", f"{gold['c']:.2f}%")
+        col_sent1, col_sent2, col_sent3 = st.columns(3)
+        col_sent1.metric("Skor Teknikal RSI", f"{sentiment['net_score']:.2f}")
+        col_sent2.metric("Bullish Power", f"{sentiment['bullish']:.1f}")
+        col_sent3.metric("Bearish Power", f"{sentiment['bearish']:.1f}")
+        
+        st.markdown("---")
+
+        # CHART & CALENDAR (LAMA)
+        st.markdown("### 🚦 Korelasi Arus Dolar vs Harga Emas")
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.05, row_heights=[0.65, 0.35], subplot_titles=("Harga Emas", "Tekanan DXY"))
+        fig.add_trace(go.Scatter(y=gold['chart'], mode='lines', name='Gold', line=dict(color='#FFD700', width=3), fill='tozeroy'), row=1, col=1)
+        dxy_vals = dxy['chart'].dropna()
+        bar_colors = ['#FF4B4B' if val > 0 else '#00CC96' for val in dxy_vals]
+        fig.add_trace(go.Bar(x=dxy_vals.index, y=dxy_vals, name='DXY Pressure', marker_color=bar_colors), row=2, col=1)
+        fig.update_layout(template="plotly_dark", height=500, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', margin=dict(l=0, r=0, t=30, b=0), showlegend=False)
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.markdown("---")
+        c_news, c_tips = st.columns([2, 1])
+        with c_news:
+            st.markdown("### 📰 Kalender USD (High Impact)")
+            # Tampilkan News Minggu Ini (seperti sebelumnya)
+            calendar = data['NEWS']['week']
+            if not calendar.empty: st.dataframe(calendar, use_container_width=True, hide_index=True)
+            else: st.info("Tidak ada berita High Impact USD minggu ini.")
+        
+        with c_tips:
+            st.markdown("### 💡 Tips Trading")
+            st.info("""
+            * **Cek Matrix (Atas):** Jika DXY & US10Y Merah semua, JANGAN BUY.
+            * **Cek Sinyal (Tengah):** Eksekusi hanya jika sinyal sesuai Matrix.
+            * **S1/R1:** Target Profit realistis harian.
+            """)
 
 if __name__ == "__main__":
     main()
