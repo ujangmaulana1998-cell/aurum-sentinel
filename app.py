@@ -6,7 +6,7 @@ import requests
 import hashlib
 import numpy as np
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ==========================================
 # 1. KONFIGURASI SISTEM & CSS BRANDING
@@ -32,7 +32,7 @@ st.markdown("""
     
     h1, h2, h3, h4, h5, h6, p, span, div, label, li { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* MATRIX CARD (SEMI TRANSPARAN AGAR KONTRAS) */
+    /* MATRIX CARD */
     .matrix-card {
         background-color: rgba(0, 0, 0, 0.4);
         border: 1px solid rgba(255,255,255,0.2);
@@ -55,6 +55,33 @@ st.markdown("""
         border: 1px solid rgba(255,255,255,0.3); 
         margin-bottom: 20px;
         box-shadow: 0 0 20px rgba(0,0,0,0.2);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* SESSION BADGE */
+    .session-badge {
+        font-size: 0.9em;
+        font-weight: bold;
+        color: black !important;
+        padding: 5px 15px;
+        border-radius: 20px;
+        text-transform: uppercase;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        display: inline-block;
+        vertical-align: middle;
+        margin-right: 15px;
+    }
+
+    /* FLEX CONTAINER FOR SIGNAL */
+    .signal-header-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-bottom: 10px;
+        flex-wrap: wrap; /* Agar aman di HP */
     }
 
     /* Metric Cards */
@@ -85,7 +112,7 @@ st.markdown("""
         border: 1px dashed rgba(255,255,255,0.4);
     }
 
-    /* TOMBOL UPDATE (REFRESH & LOGOUT) */
+    /* TOMBOL */
     div[data-testid="stHorizontalBlock"] button {
         background-color: rgba(0,0,0,0.4) !important;
         border: 1px solid rgba(255,255,255,0.5) !important;
@@ -144,8 +171,34 @@ def check_password():
 if not check_password(): st.stop()
 
 # ==========================================
-# 3. ENGINE DATA
+# 3. ENGINE DATA & SESI PASAR
 # ==========================================
+
+def get_current_session_info():
+    """
+    Menentukan sesi pasar berdasarkan Jam WIB (UTC+7).
+    """
+    # Ambil waktu UTC sekarang, lalu tambah 7 jam untuk WIB
+    utc_now = datetime.now(timezone.utc)
+    wib_time = utc_now + timedelta(hours=7)
+    hour = wib_time.hour
+    
+    # Logika Sesi (Perkiraan Jam WIB)
+    # Asia (Sydney/Tokyo): 04:00 - 13:00
+    # London (Eropa): 14:00 - 22:00
+    # New York (Amerika): 19:00 - 04:00
+    # Overlap (London + NY): 19:00 - 22:00 (Sangat Volatile)
+    
+    if 4 <= hour < 14:
+        return "🌏 SESI ASIA", "#FCD34D" # Kuning Emas
+    elif 14 <= hour < 19:
+        return "🇪🇺 SESI LONDON", "#60A5FA" # Biru Langit
+    elif 19 <= hour < 23:
+        return "🔥 OVERLAP (NY+LDN)", "#F87171" # Merah Bahaya
+    elif 23 <= hour or hour < 4:
+        return "🇺🇸 SESI NEW YORK", "#34D399" # Hijau Mint
+    else:
+        return "💤 PRE-MARKET", "#9CA3AF" # Abu-abu
 
 def get_twelvedata(symbol, interval, api_key):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50"
@@ -276,7 +329,7 @@ def fetch_market_data():
 def main():
     if 'last_signal' not in st.session_state: st.session_state['last_signal'] = "NEUTRAL"
 
-    # --- SIDEBAR (DENGAN TOMBOL LOGOUT) ---
+    # --- SIDEBAR ---
     with st.sidebar:
         try: st.image("logo.png", width=150)
         except: st.write("## 👑 MafaFX")
@@ -284,13 +337,12 @@ def main():
         st.write(f"User: **{st.session_state.get('username')}**")
         st.caption("Status: Premium Active")
         st.markdown("---")
-        # 🔴 TOMBOL LOGOUT 1
         if st.button("🚪 Logout (Keluar)"):
             st.session_state["password_correct"] = False
             st.query_params.clear()
             st.rerun()
 
-    # --- HEADER UTAMA (DENGAN TOMBOL LOGOUT 2) ---
+    # --- HEADER ---
     col_head, col_act = st.columns([5, 2])
     with col_head:
         st.title("MafaFX Premium")
@@ -298,9 +350,8 @@ def main():
     with col_act:
         c1, c2 = st.columns(2)
         with c1: 
-            if st.button("🔄 Refresh Data"): st.cache_data.clear(); st.rerun()
+            if st.button("🔄 Refresh"): st.cache_data.clear(); st.rerun()
         with c2:
-            # 🔴 TOMBOL LOGOUT 2
             if st.button("🚫 Logout"):
                 st.session_state["password_correct"] = False
                 st.query_params.clear()
@@ -336,7 +387,7 @@ def main():
         
         st.markdown("---")
 
-        # === BAGIAN 2: SINYAL EKSEKUSI H1 ===
+        # === BAGIAN 2: SINYAL EKSEKUSI H1 (DENGAN SESI PASAR) ===
         current_signal = "NEUTRAL"; signal_color = "#FFFFFF"
         if dxy['c'] > 0.05: current_signal = "SELL"; signal_color = "#FF4B4B"
         elif dxy['c'] < -0.05: current_signal = "BUY"; signal_color = "#00CC96"
@@ -345,9 +396,15 @@ def main():
         elif current_signal == "BUY": signal_text = "BELI KUAT 🟢" if sentiment['net_score'] > 0.2 else "PELUANG BELI 🟢"
         else: signal_text = "NEUTRAL (WAIT & SEE) ⚪"
 
+        # Logic Sesi Pasar
+        session_name, session_color = get_current_session_info()
+
         st.markdown(f"""
         <div class="signal-box">
-            <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em;">{signal_text}</h1>
+            <div class="signal-header-container">
+                <div class="session-badge" style="background-color: {session_color};">{session_name}</div>
+                <h1 style="margin:0; text-shadow: 0 0 15px {signal_color}; color: {signal_color}; font-size: 2.5em; display: inline-block;">{signal_text}</h1>
+            </div>
             <h3 style="margin:5px 0 0 0; color: white;">XAU/USD: ${gold['p']:,.2f}</h3>
             <p style="margin:0; opacity:0.8; font-size: 0.9em;">Perubahan 1 Jam: {gold['c']:.2f}%</p>
         </div>
