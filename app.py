@@ -12,9 +12,6 @@ from datetime import datetime, timedelta, timezone
 REGISTRATION_GROUP_LINK = "https://t.me/+QJbEZbmJdRVkNmE1" # <= LINK UNDANGAN RESMI DIGUNAKAN
 ADMIN_TELEGRAM_USERNAME = "AdminMafaFX" 
 
-# KODE LAMA DIBUAT KOMEN KARENA SUDAH TIDAK DIGUNAKAN
-# PRE_FILLED_TEXT = "..." 
-
 # ==========================================
 # 1. KONFIGURASI SISTEM & CSS BRANDING
 # ==========================================
@@ -187,14 +184,8 @@ def check_password():
             show_login_form(VALID_USERS)
             
         elif choice == "DAFTAR VIA TELEGRAM":
-            st.warning("Perhatian! Link pendaftaran langsung ke Admin sering gagal ditemukan. Kami telah mengubahnya ke tautan GRUP resmi.")
-            st.markdown(f"""
-            <div style='background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;'>
-                <p>1. Klik tombol di bawah untuk bergabung ke Group/Channel Registrasi.</p>
-                <p>2. Setelah bergabung, <b>KETIK format pendaftaran</b> berikut di kolom chat:</p>
-                <code style='color: #FFD700; background: #333; padding: 5px; border-radius: 5px;'>SAYA MAU DAFTAR\nUsername: [ISI]\nEmail: [ISI]\nPassword: [ISI]</code>
-            </div>
-            """, unsafe_allow_html=True)
+            # PESAN PEMBERSIHAN BARU:
+            st.info("Klik tombol di bawah untuk bergabung ke Group/Channel Registrasi dan mendapatkan petunjuk pendaftaran dari Admin.")
             
             # Menggunakan st.link_button untuk tombol yang berfungsi sebagai link
             st.link_button(
