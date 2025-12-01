@@ -8,6 +8,11 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 
+# --- GLOBAL CONSTANTS FOR TELEGRAM REGISTRATION ---
+ADMIN_TELEGRAM_USERNAME = "AdminMafaFX" # <= TELAH DIGANTI SESUAI PERMINTAAN
+PRE_FILLED_TEXT = "Halo Admin MafaFX, saya ingin mendaftar akun premium. Mohon isi format di bawah:\n\n1. Username Pilihan: \n2. Email Aktif: \n3. Password Pilihan: \n4. Sumber Pendaftaran: Streamlit Dashboard"
+TELEGRAM_LINK = f"https://t.me/{ADMIN_TELEGRAM_USERNAME}?text={requests.utils.quote(PRE_FILLED_TEXT)}"
+
 # ==========================================
 # 1. KONFIGURASI SISTEM & CSS BRANDING
 # ==========================================
@@ -32,29 +37,31 @@ st.markdown("""
     
     h1, h2, h3, h4, h5, h6, p, span, div, label, li { color: #ffffff !important; font-family: 'Helvetica Neue', sans-serif; }
     
-    /* MATRIX CARD */
-    .matrix-card {
+    /* Login/Register Card */
+    .stForm {
+        background-color: rgba(0, 0, 0, 0.4);
+        border: 1px solid rgba(255,255,255,0.2);
+        border-radius: 15px;
+        padding: 25px;
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    
+    /* GENERAL CARD STYLING */
+    .matrix-card, .signal-box, div[data-testid="stMetric"] {
         background-color: rgba(0, 0, 0, 0.4);
         border: 1px solid rgba(255,255,255,0.2);
         border-radius: 15px;
         padding: 10px;
-        text-align: center;
         margin-bottom: 15px;
         backdrop-filter: blur(5px);
         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    .matrix-title { font-size: 0.8em; color: #ddd; text-transform: uppercase; letter-spacing: 1px; }
-    .matrix-val { font-size: 1.3em; font-weight: bold; margin-top: 5px; }
-
-    /* SIGNAL BOX (UTAMA) */
+    
+    /* SIGNAL BOX (UTAMA) - Updated for flexbox */
     .signal-box {
-        background: rgba(0, 0, 0, 0.5); 
         padding: 25px; 
-        border-radius: 20px; 
         text-align: center; 
-        border: 1px solid rgba(255,255,255,0.3); 
-        margin-bottom: 20px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.2);
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -81,18 +88,9 @@ st.markdown("""
         align-items: center;
         justify-content: center;
         margin-bottom: 10px;
-        flex-wrap: wrap; /* Agar aman di HP */
+        flex-wrap: wrap;
     }
 
-    /* Metric Cards */
-    div[data-testid="stMetric"] { 
-        background-color: rgba(0, 0, 0, 0.3) !important; 
-        border: 1px solid rgba(255, 255, 255, 0.2); 
-        padding: 15px; 
-        border-radius: 15px; 
-        backdrop-filter: blur(5px); 
-    }
-    
     /* Outlook Box */
     .outlook-box {
         background-color: rgba(0, 0, 0, 0.4);
@@ -132,40 +130,74 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. SISTEM LOGIN
+# 2. SISTEM LOGIN & REGISTRASI (UI)
 # ==========================================
 
 def get_session_token(username, password):
     raw_str = f"{username}::{password}::MafaFX_Secure_Salt"
     return hashlib.sha256(raw_str.encode()).hexdigest()
 
+def show_login_form(VALID_USERS):
+    st.markdown("<h3 style='text-align: center;'>Masuk ke Dashboard</h3>", unsafe_allow_html=True)
+    
+    with st.form("credentials"):
+        st.text_input("Username", key="username_input")
+        st.text_input("Password", type="password", key="password_input")
+        
+        if st.form_submit_button("MASUK / LOGIN"):
+            user = st.session_state.get("username_input")
+            pwd = st.session_state.get("password_input")
+            
+            if user in VALID_USERS and VALID_USERS[user] == pwd:
+                st.session_state["password_correct"] = True
+                st.session_state["username"] = user
+                st.query_params["auth_token"] = get_session_token(user, pwd)
+                st.rerun()
+            else:
+                st.error("Username atau Password Salah.")
+
+# Logic utama untuk menampilkan login/register
 def check_password():
     try: VALID_USERS = st.secrets["passwords"]
     except: st.error("Setup Secrets dulu!"); st.stop()
+    
+    # Logika Autentikasi Token
     params = st.query_params
     if "auth_token" in params:
         token = params["auth_token"]
         for user, pwd in VALID_USERS.items():
             if get_session_token(user, pwd) == token:
                 st.session_state["password_correct"] = True; st.session_state["username"] = user; break
+    
     if "password_correct" not in st.session_state: st.session_state["password_correct"] = False
     if st.session_state["password_correct"]: return True
     
+    # --- UI MENU LOGIN/REGISTRASI ---
     col1, col2, col3 = st.columns([1, 1.5, 1])
     with col2:
         try: st.image("logo.png", width=200)
         except: st.markdown("<h1 style='text-align: center;'>👑 MafaFX</h1>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align: center;'>Premium Login</h3>", unsafe_allow_html=True)
-        with st.form("credentials"):
-            st.text_input("Username", key="username_input")
-            st.text_input("Password", type="password", key="password_input")
-            if st.form_submit_button("MASUK / LOGIN"):
-                user = st.session_state.get("username_input")
-                pwd = st.session_state.get("password_input")
-                if user in VALID_USERS and VALID_USERS[user] == pwd:
-                    st.session_state["password_correct"] = True; st.session_state["username"] = user
-                    st.query_params["auth_token"] = get_session_token(user, pwd); st.rerun()
-                else: st.error("Username/Password Salah.")
+        st.markdown("<h3 style='text-align: center;'>Premium Access</h3>", unsafe_allow_html=True)
+        
+        # Pilihan Menu
+        menu = ["MASUK / LOGIN", "DAFTAR VIA TELEGRAM"]
+        choice = st.radio(" ", menu, horizontal=True, key='login_register_choice')
+
+        if choice == "MASUK / LOGIN":
+            show_login_form(VALID_USERS)
+            
+        elif choice == "DAFTAR VIA TELEGRAM":
+            st.info("Registrasi Akun Baru. Anda akan diarahkan langsung ke Admin MafaFX via Telegram.")
+            
+            # Menggunakan st.link_button untuk tombol yang berfungsi sebagai link
+            st.link_button(
+                label="➡️ DAFTAR SEKARANG (Telegram)", 
+                url=TELEGRAM_LINK, 
+                type="primary"
+            )
+
+            st.markdown("<p style='text-align: center; font-size: 0.8em; opacity: 0.7;'>Pastikan Anda sudah menginstal aplikasi Telegram di perangkat Anda.</p>", unsafe_allow_html=True)
+            
     return False
 
 if not check_password(): st.stop()
@@ -178,27 +210,20 @@ def get_current_session_info():
     """
     Menentukan sesi pasar berdasarkan Jam WIB (UTC+7).
     """
-    # Ambil waktu UTC sekarang, lalu tambah 7 jam untuk WIB
     utc_now = datetime.now(timezone.utc)
     wib_time = utc_now + timedelta(hours=7)
     hour = wib_time.hour
     
-    # Logika Sesi (Perkiraan Jam WIB)
-    # Asia (Sydney/Tokyo): 04:00 - 13:00
-    # London (Eropa): 14:00 - 22:00
-    # New York (Amerika): 19:00 - 04:00
-    # Overlap (London + NY): 19:00 - 22:00 (Sangat Volatile)
-    
     if 4 <= hour < 14:
-        return "🌏 SESI ASIA", "#FCD34D" # Kuning Emas
+        return "🌏 SESI ASIA", "#FCD34D" 
     elif 14 <= hour < 19:
-        return "🇪🇺 SESI LONDON", "#60A5FA" # Biru Langit
+        return "🇪🇺 SESI LONDON", "#60A5FA" 
     elif 19 <= hour < 23:
-        return "🔥 OVERLAP (NY+LDN)", "#F87171" # Merah Bahaya
+        return "🔥 OVERLAP (NY+LDN)", "#F87171" 
     elif 23 <= hour or hour < 4:
-        return "🇺🇸 SESI NEW YORK", "#34D399" # Hijau Mint
+        return "🇺🇸 SESI NEW YORK", "#34D399" 
     else:
-        return "💤 PRE-MARKET", "#9CA3AF" # Abu-abu
+        return "💤 PRE-MARKET", "#9CA3AF" 
 
 def get_twelvedata(symbol, interval, api_key):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&apikey={api_key}&outputsize=50"
