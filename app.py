@@ -8,10 +8,12 @@ import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta, timezone
 
-# --- GLOBAL CONSTANTS FOR TELEGRAM REGISTRATION ---
-ADMIN_TELEGRAM_USERNAME = "AdminMafaFX" # <= TELAH DIGANTI SESUAI PERMINTAAN
-PRE_FILLED_TEXT = "Halo Admin MafaFX, saya ingin mendaftar akun premium. Mohon isi format di bawah:\n\n1. Username Pilihan: \n2. Email Aktif: \n3. Password Pilihan: \n4. Sumber Pendaftaran: Streamlit Dashboard"
-TELEGRAM_LINK = f"https://t.me/{ADMIN_TELEGRAM_USERNAME}?text={requests.utils.quote(PRE_FILLED_TEXT)}"
+# --- GLOBAL CONSTANTS UNTUK REGISTRASI BARU ---
+REGISTRATION_GROUP_LINK = "https://t.me/+QJbEZbmJdRVkNmE1" # <= LINK UNDANGAN RESMI DIGUNAKAN
+ADMIN_TELEGRAM_USERNAME = "AdminMafaFX" 
+
+# KODE LAMA DIBUAT KOMEN KARENA SUDAH TIDAK DIGUNAKAN
+# PRE_FILLED_TEXT = "..." 
 
 # ==========================================
 # 1. KONFIGURASI SISTEM & CSS BRANDING
@@ -156,12 +158,10 @@ def show_login_form(VALID_USERS):
             else:
                 st.error("Username atau Password Salah.")
 
-# Logic utama untuk menampilkan login/register
 def check_password():
     try: VALID_USERS = st.secrets["passwords"]
     except: st.error("Setup Secrets dulu!"); st.stop()
     
-    # Logika Autentikasi Token
     params = st.query_params
     if "auth_token" in params:
         token = params["auth_token"]
@@ -187,16 +187,23 @@ def check_password():
             show_login_form(VALID_USERS)
             
         elif choice == "DAFTAR VIA TELEGRAM":
-            st.info("Registrasi Akun Baru. Anda akan diarahkan langsung ke Admin MafaFX via Telegram.")
+            st.warning("Perhatian! Link pendaftaran langsung ke Admin sering gagal ditemukan. Kami telah mengubahnya ke tautan GRUP resmi.")
+            st.markdown(f"""
+            <div style='background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;'>
+                <p>1. Klik tombol di bawah untuk bergabung ke Group/Channel Registrasi.</p>
+                <p>2. Setelah bergabung, <b>KETIK format pendaftaran</b> berikut di kolom chat:</p>
+                <code style='color: #FFD700; background: #333; padding: 5px; border-radius: 5px;'>SAYA MAU DAFTAR\nUsername: [ISI]\nEmail: [ISI]\nPassword: [ISI]</code>
+            </div>
+            """, unsafe_allow_html=True)
             
             # Menggunakan st.link_button untuk tombol yang berfungsi sebagai link
             st.link_button(
-                label="➡️ DAFTAR SEKARANG (Telegram)", 
-                url=TELEGRAM_LINK, 
+                label="➡️ GABUNG GROUP REGISTRASI", 
+                url=REGISTRATION_GROUP_LINK, 
                 type="primary"
             )
 
-            st.markdown("<p style='text-align: center; font-size: 0.8em; opacity: 0.7;'>Pastikan Anda sudah menginstal aplikasi Telegram di perangkat Anda.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='text-align: center; font-size: 0.8em; opacity: 0.7;'>Anda akan diarahkan ke aplikasi Telegram Group/Channel.</p>", unsafe_allow_html=True)
             
     return False
 
